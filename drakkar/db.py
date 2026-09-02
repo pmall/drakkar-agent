@@ -36,7 +36,9 @@ def fetch(sql: str, params: tuple | dict | None = None) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=cols, orient="row", infer_schema_length=None)
 
 
-def export(sql: str, path: str | Path, params: tuple | dict | None = None) -> pl.DataFrame:
+def export(
+    sql: str, path: str | Path, params: tuple | dict | None = None
+) -> pl.DataFrame:
     """Run a SELECT, write it to .csv/.tsv/.parquet, and return the DataFrame."""
     df = fetch(sql, params)
     path = Path(path)

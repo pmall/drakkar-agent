@@ -20,8 +20,8 @@ Python env is managed with **uv**:
 ```python
 from drakkar.db import fetch, export
 
-df = fetch("select ... from dataset where ...")        # -> polars DataFrame
-export("select ...", "data/my_dataset.tsv")            # .csv / .tsv / .parquet
+df = fetch("select ... from dataset where ...")  # -> polars DataFrame
+export("select ...", "data/my_dataset.tsv")  # .csv / .tsv / .parquet
 ```
 
 `drakkar` is installed into the venv as a package, so scripts run from anywhere:
@@ -38,6 +38,13 @@ Treat `scripts/` as an append-only provenance log: commit every dataset script, 
 commit per dataset, and record the run date and the counts it produced in the
 docstring. Nothing imports them, so they are never edited to keep them running —
 a new dataset is a new script.
+
+Before considering a script finished, run it, then format and lint the repo:
+
+```bash
+uv run ruff format .
+uv run ruff check --fix .
+```
 
 ## Data model
 

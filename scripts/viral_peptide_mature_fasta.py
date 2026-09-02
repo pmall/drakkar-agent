@@ -71,7 +71,7 @@ def locate(mature, seq, start):
     it and fall back to an exact search. Viral peptide occurrences are all
     identity=100, which makes the search exact.
     """
-    if mature[start - 1:start - 1 + len(seq)] == seq:
+    if mature[start - 1 : start - 1 + len(seq)] == seq:
         return start, "recorded"
     hits = [i + 1 for i in range(len(mature)) if mature.startswith(seq, i)]
     if not hits:
@@ -79,7 +79,7 @@ def locate(mature, seq, start):
     return min(hits, key=lambda h: abs(h - start)), "relocated"
 
 
-records = {}          # header -> mature sequence
+records = {}  # header -> mature sequence
 stats = Counter()
 unresolved = []
 
@@ -87,7 +87,7 @@ for protein_id, acc, name, start, stop, taxon, mapping in rows:
     occurrences = list(peptides(mapping))
     if not occurrences:
         continue
-    mature = sequences[protein_id][acc][start - 1:stop]
+    mature = sequences[protein_id][acc][start - 1 : stop]
 
     for seq, recorded in occurrences:
         pos, how = locate(mature, seq, recorded)
@@ -103,10 +103,11 @@ with open(OUT, "w") as fh:
     for header in sorted(records):
         seq = records[header]
         fh.write(f">{header}\n")
-        for i in range(0, len(seq), WRAP):
-            fh.write(seq[i:i + WRAP] + "\n")
+        fh.writelines(seq[i : i + WRAP] + "\n" for i in range(0, len(seq), WRAP))
 
 print(f"peptide occurrences: {dict(stats)}")
-print(f"{len(records)} records, {len(set(records.values()))} distinct sequences -> {OUT}")
+print(
+    f"{len(records)} records, {len(set(records.values()))} distinct sequences -> {OUT}"
+)
 for u in unresolved:
     print("  unresolved:", u)
