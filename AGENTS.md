@@ -10,7 +10,7 @@ Credentials live in `.env` (gitignored; see `.env.example`). Never print the pas
 Layout:
 
 ```
-lib/db.py      connection + query helpers (loads .env via python-dotenv)
+drakkar/db.py  connection + query helpers (loads .env via python-dotenv)
 scripts/       one dataset script per file
 data/          exports (gitignored)
 ```
@@ -18,16 +18,16 @@ data/          exports (gitignored)
 Python env is managed with **uv**:
 
 ```python
-from lib.db import fetch, export
+from drakkar.db import fetch, export
 
 df = fetch("select ... from dataset where ...")        # -> polars DataFrame
 export("select ...", "data/my_dataset.tsv")            # .csv / .tsv / .parquet
 ```
 
-Run from the repo root, with the root on the path so `lib` resolves:
+`drakkar` is installed into the venv as a package, so scripts run from anywhere:
 
 ```bash
-PYTHONPATH=. uv run python scripts/my_dataset.py
+uv run python scripts/my_dataset.py
 ```
 
 `scripts/example_dataset.py` is a working template. **All exports go to `data/`.**
@@ -167,7 +167,7 @@ JOIN taxon_name n ON n.taxon_id = t.taxon_id AND n.name_class = 'scientific name
 WHERE n.name = 'Orthomyxoviridae'
 ```
 
-`taxon2` is `'Obsolete'` when the taxon has no scientific name.
+`taxon2` is the NCBI scientific name of `ncbi_taxon_id2`.
 
 ## Gotchas
 

@@ -1,6 +1,6 @@
-"""Template for a dataset script. Run: PYTHONPATH=. uv run python scripts/<name>.py"""
+"""Template for a dataset script. Run: uv run python scripts/<name>.py"""
 
-from lib.db import export
+from drakkar.db import export
 
 VALID = """
     state = 'curated'
