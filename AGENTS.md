@@ -33,6 +33,12 @@ uv run python scripts/my_dataset.py
 `scripts/example_dataset.py` is a working template. **All exports go to `data/`.**
 `psql` is fine for quick counts and exploration.
 
+`data/` is gitignored, so a script is the only record of how its dataset was built.
+Treat `scripts/` as an append-only provenance log: commit every dataset script, one
+commit per dataset, and record the run date and the counts it produced in the
+docstring. Nothing imports them, so they are never edited to keep them running —
+a new dataset is a new script.
+
 ## Data model
 
 Curation source tables: `runs → associations → descriptions`, plus `methods`,
