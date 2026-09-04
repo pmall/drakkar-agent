@@ -14,3 +14,6 @@ wheels/
 
 # Exported datasets
 data/
+
+# Generated reports
+reports/
