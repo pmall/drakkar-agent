@@ -11,12 +11,7 @@ protein carries several peptides. Header:
 Peptide coordinates are 1-based inclusive on the emitted sequence.
 
 Run: uv run python scripts/viral_peptide_mature_fasta.py
-
-Produced 2026-09-02 -> data/viral_mature_with_peptides.fasta:
-    116,015 valid vh descriptions
-    2,467 peptide occurrences: 2,446 at the recorded coordinate, 19 relocated,
-    2 skipped (see `locate` below)
-    1,264 records over 625 mature proteins, 571 distinct sequences
+Writes data/viral_mature_with_peptides.fasta.
 """
 
 from collections import Counter

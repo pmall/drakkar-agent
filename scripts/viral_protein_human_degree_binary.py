@@ -39,14 +39,8 @@ Writes the degree table and regenerates the markdown report.
 
 Valid PPI filter applied, vh only.
 
-Run 2026-09-04:
-  binary-supported pairs        : 13,626
-  strain-abstracted viral proteins with >=1 such pair : 950
-  degree: mean 14.3, median 2, max 430, p90 = 27, p99 = 271
-  top  1% of viral proteins (10)  hold 25.4% of all pairs
-  top 10% (95) hold 75.2%
-  exports: data/viral_protein_human_degree_binary.tsv
-           reports/viral_protein_human_degree_binary.md
+Exports data/viral_protein_human_degree_binary.tsv and regenerates the
+markdown report.
 """
 
 import polars as pl

@@ -11,14 +11,8 @@ Writes the degree table and regenerates the markdown report.
 
 Valid PPI filter applied, vh only.
 
-Run 2026-09-04:
-  pairs with >1 pmid            : 7,055
-  strain-abstracted viral proteins with >=1 such pair : 460
-  degree: mean 15.3, median 2, max 411, p90 = 34, p99 = 240
-  top  1% of viral proteins (5)  hold 24.0% of all pairs
-  top 10% (46) hold 72.0%
-  exports: data/viral_protein_human_degree_multipmid.tsv
-           reports/viral_protein_human_degree_multipmid.md
+Exports data/viral_protein_human_degree_multipmid.tsv and regenerates the
+markdown report.
 """
 
 import polars as pl

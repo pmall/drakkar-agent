@@ -18,11 +18,7 @@ Valid PPI filter applied, vh only.
 Note: species rank is NCBI species, so SARS-CoV-1 and SARS-CoV-2 both collapse
 into "Severe acute respiratory syndrome-related coronavirus".
 
-Run 2026-09-04:
-  species : 354 viruses, 1,734 unique (virus, name) protein entries
-  genus   : 148 genera,  1,258 unique (genus, name) entries
-  family  :  51 families,   977 unique (family, name) entries
-  exported to data/viral_proteins_by_virus.tsv (species-rank table, 354 rows)
+Exports the species-rank table to data/viral_proteins_by_virus.tsv.
 """
 
 import polars as pl

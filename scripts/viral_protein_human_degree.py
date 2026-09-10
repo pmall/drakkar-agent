@@ -10,14 +10,7 @@ pairs, one pull of the taxon table, rollup in polars.
 
 Valid PPI filter applied, vh only.
 
-Run 2026-09-04:
-  1,734 strain-abstracted viral proteins
-  90,683 unique (viral protein, human protein) pairs
-  degree: mean 52.3, median 4, max 2,817, p90 = 126, p99 = 814
-  top  1% of viral proteins (17)  hold 24.5% of all pairs
-  top 10% (173) hold 78.2%
-  -> highly skewed, hub-dominated
-  exported: data/viral_protein_human_degree.tsv
+Exports data/viral_protein_human_degree.tsv.
 """
 
 import polars as pl
