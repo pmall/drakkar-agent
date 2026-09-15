@@ -72,3 +72,19 @@ Append-only log of dataset exports. Each run appends one section below via
 - distinct peptide sequences: 1,359
 - unresolved: 16
 - is_cter true: 227
+
+## 2026-09-15 -- scripts/mapping_corrections.py
+
+- output: `data/mapping_corrections.tsv`
+- database: drakkar_2026_09
+- valid descriptions with mappings: 18,825
+- mapping entries audited: 25,925
+- occurrences audited: 44,487
+- problems: 75
+- descriptions requiring correction: 58
+- peptide problems: 45
+- problem coordinates_mismatch: 36
+- problem coordinates_out_of_bounds: 1
+- problem duplicate_occurrence: 9
+- problem empty_isoforms: 16
+- problem repeated_isoform_block: 13
