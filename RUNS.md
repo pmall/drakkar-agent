@@ -62,3 +62,13 @@ Append-only log of dataset exports. Each run appends one section below via
 - database: drakkar_2026_09
 - interactions: 103,758
 - binary interactions: 15,656
+
+## 2026-09-15 -- scripts/viral_peptide_cter_flag.py
+
+- output: `data/viral_peptide_cter_flag.tsv`
+- database: drakkar_2026_09
+- valid vh descriptions scanned: 117,431
+- peptide occurrences resolved: 2,866
+- distinct peptide sequences: 1,359
+- unresolved: 16
+- is_cter true: 227
