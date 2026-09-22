@@ -10,14 +10,16 @@ Both interactomes are included; `type` tells them apart (`hh` / `vh`).
 
   stable_id, type, pmid,
   psimi_id, method,
-  accession1, start1, stop1, name1, description1,
-  accession2, start2, stop2, name2, description2
+  accession1, start1, stop1, name1, description1, ncbi_taxon_id1,
+  accession2, start2, stop2, name2, description2, ncbi_taxon_id2
 
 Each protein is identified by its `(accession, start, stop)` triple -- never
 by accession alone, since one viral polyprotein accession yields many mature
 proteins at different coordinates. Human proteins (side 1) are always full
-length, so their triple is always `(accession1, 1, length)`. Sequences are
-deliberately not exported; recover them from `proteins.sequences`.
+length, so their triple is always `(accession1, 1, length)`. `ncbi_taxon_idN`
+is the protein's NCBI taxon: 9606 on side 1, and on side 2 the strain-level
+taxon of a viral protein. Sequences are deliberately not exported; recover
+them from `proteins.sequences`.
 
 `publications.tsv` -- one row per distinct pmid referenced above, so the
 article metadata is not repeated on every description:
@@ -87,14 +89,16 @@ SELECT
     stop1,
     name1,
     description1,
+    ncbi_taxon_id1,
     accession2,
     start2,
     stop2,
     name2,
-    description2
+    description2,
+    ncbi_taxon_id2
 FROM dataset
 WHERE {VALID}
-ORDER BY pmid, accession1, accession2, start2, stop2, psimi_id
+ORDER BY pmid, accession1, accession2, start2, stop2, psimi_id, stable_id
 """
 
 # Only the Article subtree is pulled back: the full PubMed record carries
