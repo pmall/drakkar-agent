@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import polars as pl
 import psycopg
 from dotenv import load_dotenv
+from psycopg.rows import TupleRow
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Query parameters, as psycopg takes them: positional for %s placeholders,
+# named for %(name)s ones.
+type Params = Sequence[object] | Mapping[str, object]
 
 
 def dsn() -> str:
@@ -23,14 +29,18 @@ def dsn() -> str:
     )
 
 
-def connect() -> psycopg.Connection:
+def connect() -> psycopg.Connection[TupleRow]:
     return psycopg.connect(dsn())
 
 
-def fetch(sql: str, params: tuple | dict | None = None) -> pl.DataFrame:
+def fetch(sql: str, params: Params | None = None) -> pl.DataFrame:
     """Run a SELECT and return the rows as a polars DataFrame."""
     with connect() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
+        # psycopg types a query as a LiteralString to keep interpolated SQL
+        # out of it; ours are composed at runtime, so they go as bytes.
+        cur.execute(sql.encode(), params)
+        if cur.description is None:
+            raise ValueError("the query returned no result set")
         cols = [d.name for d in cur.description]
         rows = cur.fetchall()
     return pl.DataFrame(rows, schema=cols, orient="row", infer_schema_length=None)
@@ -57,15 +67,13 @@ def stream(sql: str, path: str | Path) -> None:
         connect() as conn,
         conn.cursor() as cur,
         path.open("wb") as fh,
-        cur.copy(copy) as reader,
+        cur.copy(copy.encode()) as reader,
     ):
         for chunk in reader:
             fh.write(chunk)
 
 
-def export(
-    sql: str, path: str | Path, params: tuple | dict | None = None
-) -> pl.DataFrame:
+def export(sql: str, path: str | Path, params: Params | None = None) -> pl.DataFrame:
     """Run a SELECT, write it to .csv/.tsv/.parquet, and return the DataFrame."""
     df = fetch(sql, params)
     path = Path(path)

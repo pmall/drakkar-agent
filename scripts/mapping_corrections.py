@@ -41,11 +41,23 @@ import json
 import re
 from collections import Counter
 from difflib import SequenceMatcher
+from typing import Literal
 
 import polars as pl
 
 from drakkar.db import connect
 from drakkar.runs import log_run
+
+type Problem = Literal[
+    "empty_isoforms",
+    "empty_occurrences",
+    "duplicate_occurrence",
+    "repeated_isoform_block",
+    "malformed_entry",
+    "invalid_isoform",
+    "coordinates_mismatch",
+    "coordinates_out_of_bounds",
+]
 
 OUTPUT = "data/mapping_corrections.tsv"
 
@@ -73,21 +85,32 @@ with connect() as conn, conn.cursor() as cur:
 print(f"{len(rows)} valid descriptions with at least one mapping")
 
 
-def number(value):
-    """Numeric value of an occurrence field (strings tolerated), else None."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return value
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
+def _number(value: object) -> float:
+    """Numeric value of an occurrence field, stored as a string about a third
+    of the time. Raises when it is not a number -- `float` does the raising
+    for a string that does not read as one."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise TypeError(f"not a number: {value!r}")
+    return float(value)
 
 
-def aligned_identity(region, seq):
+def coordinate(value: object) -> int:
+    """A recorded coordinate. Raises ValueError when it is not a whole number."""
+    number = _number(value)
+    if number != int(number):
+        raise ValueError(f"not a whole number: {value!r}")
+    return int(number)
+
+
+def percentage(value: object) -> float:
+    """A recorded identity. Raises ValueError when it is out of range."""
+    number = _number(value)
+    if not 0 < number <= 100:
+        raise ValueError(f"not a percentage: {value!r}")
+    return number
+
+
+def aligned_identity(region: str, seq: str) -> float:
     """Identity (%) of `seq` against `region`, matches over the longer length.
 
     Residue-by-residue for equal lengths; when that falls short (or lengths
@@ -102,20 +125,30 @@ def aligned_identity(region, seq):
     return 100 * max(ungapped, gapped) / longest
 
 
-def positions(frame, seq):
+def positions(frame: str, seq: str) -> list[int]:
     return [i + 1 for i in range(len(frame)) if frame.startswith(seq, i)]
 
 
-def span(starts, length):
+def span(starts: list[int], length: int) -> str:
     return ", ".join(f"{s}-{s + length - 1}" for s in starts)
 
 
-records = []
-stats = Counter()
+records: list[dict[str, str | int | bool | None]] = []
+stats: Counter[str] = Counter()
 
 
-def audit(stable_id, type_, side, protein_id, acc, name, start, stop, raw):
-    base = {
+def audit(
+    stable_id: str,
+    type_: str,
+    side: int,
+    protein_id: int,
+    acc: str,
+    name: str,
+    start: int,
+    stop: int,
+    raw: str,
+) -> None:
+    base: dict[str, str | int] = {
         "stable_id": stable_id.strip(),
         "type": type_.strip(),
         "side": side,
@@ -125,7 +158,13 @@ def audit(stable_id, type_, side, protein_id, acc, name, start, stop, raw):
         "stop": stop,
     }
 
-    def report(problem, seq, isoform="", recorded="", finding=""):
+    def report(
+        problem: Problem,
+        seq: object,
+        isoform: str | None = "",
+        recorded: str = "",
+        finding: str = "",
+    ) -> None:
         records.append(
             base
             | {
@@ -236,17 +275,11 @@ def audit(stable_id, type_, side, protein_id, acc, name, start, stop, raw):
                         "occurrence keys are not start, stop, identity",
                     )
                     continue
-                o_start, o_stop, identity = (
-                    number(occ["start"]),
-                    number(occ["stop"]),
-                    number(occ["identity"]),
-                )
-                if (
-                    None in (o_start, o_stop, identity)
-                    or o_start != int(o_start)
-                    or o_stop != int(o_stop)
-                    or not 0 < identity <= 100
-                ):
+                try:
+                    o_start = coordinate(occ["start"])
+                    o_stop = coordinate(occ["stop"])
+                    identity = percentage(occ["identity"])
+                except TypeError, ValueError:
                     report(
                         "malformed_entry",
                         seq,
@@ -255,7 +288,6 @@ def audit(stable_id, type_, side, protein_id, acc, name, start, stop, raw):
                         "non-numeric or out-of-range value",
                     )
                     continue
-                o_start, o_stop = int(o_start), int(o_stop)
                 recorded = f"{o_start}-{o_stop} ({identity:g}%)"
                 seen[o_start, o_stop] += 1
                 if seen[o_start, o_stop] == 2:
@@ -326,7 +358,7 @@ df = pl.DataFrame(
         "recorded": pl.String,
         "finding": pl.String,
     },
-).sort("problem", "accession", "start", "stable_id", "side")
+).sort("problem", "accession", "start", "stable_id", "side", "sequence", "recorded")
 df.write_csv(OUTPUT, separator="\t")
 
 print(f"{stats['entries']} mapping entries, {stats['occurrences']} occurrences audited")

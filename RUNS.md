@@ -95,3 +95,36 @@ Append-only log of dataset exports. Each run appends one section below via
 - database: drakkar_2026_09
 - publications: 14,929
 - peptides: 4,593
+
+## 2026-09-22 -- scripts/viral_peptide_mature_fasta.py
+
+- output: `data/viral_mature_with_peptides.fasta`
+- database: drakkar_2026_09
+- valid vh descriptions with a mapping: 8,513
+- peptide occurrences: 3,003
+- records: 1,609
+- mature proteins: 764
+- distinct sequences: 708
+- occurrences recorded: 2,949
+- occurrences recorded despite mismatch: 2
+- occurrences relocated: 19
+- occurrences searched: 33
+
+## 2026-09-22 -- scripts/viral_peptide_summary.py
+
+- output: `data/viral_peptide_summary.tsv`
+- database: drakkar_2026_09
+- valid vh descriptions with a mapping: 8,513
+- unique viral peptide sequences: 1,430
+- unique source viral (mature) proteins: 764
+- unique human targets: 696
+- unique (peptide, human target) associations: 2,471
+
+## 2026-09-22 -- scripts/viral_protein_human_degree_binary.py
+
+- output: `data/viral_protein_human_degree_binary.tsv + reports/viral_protein_human_degree_binary.md`
+- database: drakkar_2026_09
+- binary-supported pairs: 13,876
+- viral proteins: 1,051
+- degree: mean 13.2, median 2, max 430, p90 = 23, p99 = 230
+- concentration: top 1% hold 26.6% of pairs, top 10% hold 75.9%

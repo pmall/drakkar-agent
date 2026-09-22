@@ -8,6 +8,7 @@ docstrings: docstrings describe the dataset, this log records each run.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,7 +34,10 @@ def _db_name() -> str:
 
 
 def log_run(
-    script: str, output: str, stats: dict[str, str | int], date: str | None = None
+    script: str,
+    output: str,
+    stats: Mapping[str, str | int],
+    date: str | None = None,
 ) -> str:
     """Append a run entry to RUNS.md and return the entry text.
 

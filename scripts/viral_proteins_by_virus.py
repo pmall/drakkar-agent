@@ -78,7 +78,7 @@ def main() -> None:
         .group_by("virus")
         .len()
         .rename({"len": "n_proteins"})
-        .sort("n_proteins", descending=True)
+        .sort(["n_proteins", "virus"], descending=[True, False])
     )
     species.write_csv("data/viral_proteins_by_virus.tsv", separator="\t")
     print()

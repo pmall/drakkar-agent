@@ -16,7 +16,38 @@ sequence it was curated on.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import NamedTuple
+from typing import Literal, NamedTuple, TypedDict
+
+
+class RecordedOccurrence(TypedDict):
+    """One recorded position, as stored -- numbers or the strings of them."""
+
+    start: int | str
+    stop: int | str
+    identity: int | float | str
+
+
+class Isoform(TypedDict):
+    """The sequence an entry was recorded against, and where on it."""
+
+    accession: str
+    occurrences: list[RecordedOccurrence]
+
+
+class Entry(TypedDict):
+    """One curated sequence and the sequences it was recorded on."""
+
+    sequence: str
+    isoforms: list[Isoform]
+
+
+type How = Literal[
+    "recorded",
+    "relocated",
+    "searched",
+    "not verified",
+    "recorded despite mismatch",
+]
 
 
 class Occurrence(NamedTuple):
@@ -52,11 +83,11 @@ class Occurrence(NamedTuple):
     accession: str
     start: int
     stop: int
-    how: str
+    how: How
 
 
 def occurrences(
-    mapping: list[dict] | None,
+    mapping: list[Entry],
     sequences: dict[str, str],
     min_length: int,
     max_length: int,
@@ -73,7 +104,7 @@ def occurrences(
     Entries whose sequence is shorter than `min_length` or longer than
     `max_length` are skipped.
     """
-    for entry in mapping or []:
+    for entry in mapping:
         curated = entry["sequence"]
         if not min_length <= len(curated) <= max_length:
             continue
@@ -102,7 +133,7 @@ def _search(curated: str, sequences: dict[str, str]) -> Iterator[Occurrence]:
 
 def _correct(
     sequence: str, curated: str, start: int, identity: float
-) -> list[tuple[int, str]]:
+) -> list[tuple[int, How]]:
     """Where `curated` really sits on `sequence`, given its recorded start.
 
     An occurrence curated below identity 100 was aligned rather than
@@ -128,5 +159,5 @@ def _positions(sequence: str, curated: str) -> list[int]:
     return [i + 1 for i in range(len(sequence)) if sequence.startswith(curated, i)]
 
 
-def _row(curated: str, accession: str, position: int, how: str) -> Occurrence:
+def _row(curated: str, accession: str, position: int, how: How) -> Occurrence:
     return Occurrence(curated, accession, position, position + len(curated) - 1, how)

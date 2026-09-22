@@ -166,7 +166,7 @@ def _author(author: Any) -> str:
     return " ".join(part for part in parts if part)
 
 
-def _authors(article: dict) -> str:
+def _authors(article: dict[str, Any]) -> str:
     authors = (article.get("AuthorList") or {}).get("Author")
     if authors is None:
         return ""
@@ -175,7 +175,7 @@ def _authors(article: dict) -> str:
     return "; ".join(filter(None, (_author(a) for a in authors)))
 
 
-def _year(article: dict) -> str:
+def _year(article: dict[str, Any]) -> str:
     journal = article.get("Journal") or {}
     pubdate = (journal.get("JournalIssue") or {}).get("PubDate") or {}
     year = _text(pubdate.get("Year"))
@@ -185,7 +185,7 @@ def _year(article: dict) -> str:
     return match.group(0) if match else ""
 
 
-def _publication(pmid: int, article: dict) -> dict[str, Any]:
+def _publication(pmid: int, article: dict[str, Any]) -> dict[str, Any]:
     journal = article.get("Journal") or {}
     return {
         "pmid": pmid,

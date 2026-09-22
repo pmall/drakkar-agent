@@ -8,7 +8,14 @@ protein carries several peptides. Header:
 
     >accession|start2-stop2|name2|pepstart-pepstop|taxon
 
-Peptide coordinates are 1-based inclusive on the emitted sequence.
+Peptide coordinates are 1-based inclusive on the emitted sequence. Entries are
+read through `drakkar.mappings.occurrences` against the mature protein alone --
+the sequence the record carries, so the coordinates are in its frame. An entry
+recorded on an isoform is therefore searched for on the mature protein, and one
+that is nowhere on it yields no record.
+
+Valid PPI filter: state = 'curated' AND is_obsolete1/2 IS FALSE AND
+deleted_at IS NULL AND type = 'vh'.
 
 Run: uv run python scripts/viral_peptide_mature_fasta.py
 Writes data/viral_mature_with_peptides.fasta.
@@ -18,6 +25,8 @@ from collections import Counter
 from pathlib import Path
 
 from drakkar.db import connect
+from drakkar.mappings import How, occurrences
+from drakkar.runs import log_run
 
 OUT = Path("data/viral_mature_with_peptides.fasta")
 PEPTIDE_MIN, PEPTIDE_MAX = 4, 20
@@ -29,6 +38,7 @@ VALID = """
     AND is_obsolete2 IS FALSE
     AND deleted_at IS NULL
     AND type = 'vh'
+    AND json_array_length(mapping2) > 0
 """
 
 with connect() as conn, conn.cursor() as cur:
@@ -43,55 +53,19 @@ with connect() as conn, conn.cursor() as cur:
     cur.execute("SELECT id, sequences FROM proteins WHERE id = ANY(%s)", (ids,))
     sequences = dict(cur.fetchall())
 
-print(f"{len(rows)} valid vh descriptions, {len(sequences)} viral protein versions")
+print(f"{len(rows)} valid vh descriptions with a mapping, {len(sequences)} proteins")
 
-
-def peptides(mapping):
-    """Yield (sequence, recorded start) for every 4-20 aa mapping occurrence."""
-    for entry in mapping:
-        seq = entry["sequence"]
-        if not PEPTIDE_MIN <= len(seq) <= PEPTIDE_MAX:
-            continue
-        for isoform in entry["isoforms"]:
-            for occ in isoform["occurrences"]:
-                yield seq, occ["start"]
-
-
-def locate(mature, seq, start):
-    """Position of `seq` in `mature`, 1-based, or None.
-
-    `start` is the curated coordinate, normally already relative to the mature
-    protein. A few descriptions record it in the polyprotein frame instead (all
-    Q99IB8 Core, start2=2), and one is a plain off-by-one (P06935 Core), so verify
-    it and fall back to an exact search. Viral peptide occurrences are all
-    identity=100, which makes the search exact.
-    """
-    if mature[start - 1 : start - 1 + len(seq)] == seq:
-        return start, "recorded"
-    hits = [i + 1 for i in range(len(mature)) if mature.startswith(seq, i)]
-    if not hits:
-        return None, "not found"
-    return min(hits, key=lambda h: abs(h - start)), "relocated"
-
-
-records = {}  # header -> mature sequence
-stats = Counter()
-unresolved = []
+records: dict[str, str] = {}  # header -> mature sequence
+mature_proteins: set[tuple[str, int, int]] = set()
+stats: Counter[How] = Counter()
 
 for protein_id, acc, name, start, stop, taxon, mapping in rows:
-    occurrences = list(peptides(mapping))
-    if not occurrences:
-        continue
     mature = sequences[protein_id][acc][start - 1 : stop]
-
-    for seq, recorded in occurrences:
-        pos, how = locate(mature, seq, recorded)
-        stats[how] += 1
-        if pos is None:
-            unresolved.append((acc, name, start, stop, seq, recorded))
-            continue
-        header = f"{acc}|{start}-{stop}|{name}|{pos}-{pos + len(seq) - 1}|{taxon}"
+    for occ in occurrences(mapping, {acc: mature}, PEPTIDE_MIN, PEPTIDE_MAX):
+        stats[occ.how] += 1
+        header = f"{acc}|{start}-{stop}|{name}|{occ.start}-{occ.stop}|{taxon}"
         records[header] = mature
+        mature_proteins.add((acc, start, stop))
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
 with open(OUT, "w") as fh:
@@ -104,5 +78,16 @@ print(f"peptide occurrences: {dict(stats)}")
 print(
     f"{len(records)} records, {len(set(records.values()))} distinct sequences -> {OUT}"
 )
-for u in unresolved:
-    print("  unresolved:", u)
+
+log_run(
+    "scripts/viral_peptide_mature_fasta.py",
+    str(OUT),
+    {
+        "valid vh descriptions with a mapping": len(rows),
+        "peptide occurrences": sum(stats.values()),
+        "records": len(records),
+        "mature proteins": len(mature_proteins),
+        "distinct sequences": len(set(records.values())),
+    }
+    | {f"occurrences {how}": n for how, n in sorted(stats.items())},
+)

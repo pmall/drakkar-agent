@@ -7,13 +7,14 @@ described by **more than one distinct PubMed id** (counted after strain
 abstraction: two single-pmid curations on two strains of the same virus count as
 two publications for the collapsed pair).
 
-Writes the degree table and regenerates the markdown report.
-
 Valid PPI filter applied, vh only.
 
 Exports data/viral_protein_human_degree_multipmid.tsv and regenerates the
 markdown report.
 """
+
+from datetime import UTC, datetime
+from typing import Any
 
 import polars as pl
 
@@ -55,18 +56,33 @@ def roll_to_virus(pairs: pl.DataFrame, species: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
-    n_prot = degree.height
-    total = int(degree["n_human"].sum())
-    d = degree["n_human"]
+def summarise(degree: pl.DataFrame) -> dict[str, Any]:
+    """The degree distribution -- what the report and the run log both quote."""
+    n_human = pl.col("n_human")
+    summary = degree.select(
+        proteins=pl.len(),
+        pairs=n_human.sum(),
+        mean=n_human.mean(),
+        median=n_human.median(),
+        max=n_human.max(),
+        p75=n_human.quantile(0.75),
+        p90=n_human.quantile(0.9),
+        p95=n_human.quantile(0.95),
+        p99=n_human.quantile(0.99),
+    ).row(0, named=True)
 
-    qs = {q: int(d.quantile(q)) for q in (0.5, 0.75, 0.9, 0.95, 0.99)}
-    cum = degree.with_columns(cum=pl.col("n_human").cum_sum())
-    conc = {}
+    # the table is sorted, so the top k proteins are its first k rows
+    cum = degree.select(n_human.cum_sum())["n_human"]
+    summary["top"] = {}
     for frac in (0.01, 0.05, 0.10, 0.25):
-        k = max(1, round(n_prot * frac))
-        conc[frac] = (k, cum["cum"][k - 1] / total)
+        k = max(1, round(summary["proteins"] * frac))
+        summary["top"][frac] = (k, cum[k - 1] / summary["pairs"])
+    return summary
 
+
+def degree_report(
+    degree: pl.DataFrame, summary: dict[str, Any], title: str, intro: str
+) -> str:
     breaks = [2, 3, 6, 11, 26, 51, 101, 251]
     labels = ["1", "2", "3-5", "6-10", "11-25", "26-50", "51-100", "101-250", "250+"]
     hist = (
@@ -81,7 +97,7 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
     lines = [
         f"# {title}",
         "",
-        "**Date:** 2026-09-04  ",
+        f"**Date:** {datetime.now(UTC).date().isoformat()}  ",
         "**Source:** drakkar `dataset` MV, valid PPI filter, `vh` interactions only  ",
         "**Script:** `scripts/viral_protein_human_degree_multipmid.py`  ",
         f"**Export:** `{TSV}`",
@@ -90,27 +106,27 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
         "",
         "## Result",
         "",
-        f"- **{n_prot}** strain-abstracted viral proteins",
-        f"- **{total:,}** unique *(viral protein, human protein)* pairs",
+        f"- **{summary['proteins']}** strain-abstracted viral proteins",
+        f"- **{summary['pairs']:,}** unique *(viral protein, human protein)* pairs",
         "",
         "### Degree summary",
         "",
         "| statistic | value |",
         "|-----------|------:|",
-        f"| mean   | {d.mean():.1f} |",
-        f"| median | {int(d.median())} |",
-        f"| p75    | {qs[0.75]} |",
-        f"| p90    | {qs[0.9]} |",
-        f"| p95    | {qs[0.95]} |",
-        f"| p99    | {qs[0.99]} |",
-        f"| max    | {int(d.max()):,} |",
+        f"| mean   | {summary['mean']:.1f} |",
+        f"| median | {int(summary['median'])} |",
+        f"| p75    | {int(summary['p75'])} |",
+        f"| p90    | {int(summary['p90'])} |",
+        f"| p95    | {int(summary['p95'])} |",
+        f"| p99    | {int(summary['p99'])} |",
+        f"| max    | {summary['max']:,} |",
         "",
         "### Concentration",
         "",
         "| top viral proteins | count | share of all pairs |",
         "|--------------------|------:|-------------------:|",
     ]
-    for frac, (k, share) in conc.items():
+    for frac, (k, share) in summary["top"].items():
         lines.append(f"| top {frac:.0%} | {k} | {share:.1%} |")
     lines += [
         "",
@@ -134,7 +150,7 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
     pv = (
         degree.group_by("virus")
         .agg(n_prot=pl.len(), pairs=pl.col("n_human").sum())
-        .sort("pairs", descending=True)
+        .sort(["pairs", "virus"], descending=[True, False])
         .head(10)
     )
     lines += [
@@ -179,12 +195,14 @@ def main() -> None:
     degree = (
         multi.group_by("virus", "name2")
         .agg(n_human=pl.len())
-        .sort("n_human", descending=True)
+        .sort(["n_human", "virus", "name2"], descending=[True, False, False])
     )
     degree.write_csv(TSV, separator="\t")
 
+    summary = summarise(degree)
     report = degree_report(
         degree,
+        summary,
         "Human-interactor degree of viral proteins -- multi-publication interactions",
         (
             "Only *(viral protein, human protein)* pairs described by **more than "
@@ -196,8 +214,8 @@ def main() -> None:
     with open(MD, "w") as fh:
         fh.write(report)
 
-    print(f"pairs kept (>1 pmid): {int(degree['n_human'].sum()):,}")
-    print(f"viral proteins      : {degree.height}")
+    print(f"pairs kept (>1 pmid): {summary['pairs']:,}")
+    print(f"viral proteins      : {summary['proteins']}")
     print(degree.head(15))
 
 

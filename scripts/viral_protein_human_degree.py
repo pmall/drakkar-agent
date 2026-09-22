@@ -58,7 +58,7 @@ def main() -> None:
     degree = (
         rolled.group_by("virus", "name2")
         .agg(n_human=pl.col("accession1").n_unique())
-        .sort("n_human", descending=True)
+        .sort(["n_human", "virus", "name2"], descending=[True, False, False])
     )
     degree.write_csv("data/viral_protein_human_degree.tsv", separator="\t")
 

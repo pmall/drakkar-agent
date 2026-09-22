@@ -129,7 +129,7 @@ BINARY_PSIMI_IDS: tuple[str, ...] = tuple(
     psimi for _, members in BINARY_METHOD_GROUPS for psimi, _ in members
 )
 
-_BINARY_SET = frozenset(BINARY_PSIMI_IDS)
+_BINARY_SET: frozenset[str] = frozenset(BINARY_PSIMI_IDS)
 
 
 def is_binary_psimi(psimi_id: str) -> bool:
@@ -139,7 +139,7 @@ def is_binary_psimi(psimi_id: str) -> bool:
 
 def format_binary_methods() -> str:
     """Render the grouped allowlist as text, for reports and papers."""
-    lines = []
+    lines: list[str] = []
     for group, members in BINARY_METHOD_GROUPS:
         lines.append(f"{group}:")
         lines += [f"  {psimi} -- {label}" for psimi, label in members]

@@ -7,35 +7,10 @@ description used a **binary** detection method -- one that reports a direct 1:1
 physical contact, as opposed to co-complex / affinity capture, proximity
 labelling, cross-linking, enzymatic-reaction or nucleic-acid methods.
 
-BINARY_METHOD_IDS below is the curated allowlist (drakkar ``methods.id``). It was
-built from the PSI-MI detection-method branch, restricted to methods actually
-present in valid vh rows, and covers:
-
-  * two-hybrid and reporter-recruitment assays (Y2H and derivatives, MAPPIT,
-    GAL4-VP16, lambda-repressor 2H)
-  * protein-fragment complementation (PCA, BiFC, split-ubiquitin, split-luc,
-    GPCA, beta-gal/beta-lac/adenylate-cyclase complementation, LUMIER, BRET)
-  * resonance energy transfer / homogeneous proximity (FRET, HTRF, AlphaScreen)
-  * direct biophysical binding of purified partners (SPR, ITC, BLI, MST, FP,
-    FCS, fluorescence spectroscopy, thermal shift, DSC, QCM, biosensor, filter
-    binding, competition binding, solid-phase / scintillation proximity, CD)
-  * structural methods implying atomic contact (X-ray, NMR, HDX-MS, disulfide
-    bond)
-  * binding to immobilised bait / display selection (protein & peptide arrays,
-    phage / T7 / lambda / yeast display, far-western, ELISA, sandwich immunoassay)
-
-Deliberately EXCLUDED as non-binary: mass spectrometry of complexes, all
-co-immunoprecipitation / pull-down / affinity chromatography / TAP, proximity
-labelling & BioID, proximity ligation assay, cross-linking studies, EM,
-co-sedimentation / co-migration / gel filtration / native PAGE, light /
-X-ray / neutron scattering, DLS, EPR, EMSA / mobility shift, antibody array,
-western blot, protein three-hybrid, and enzymatic-reaction methods
-(phosphorylation, ubiquitination, cleavage, ...).
-
-Borderline calls (protein array, far-western, ELISA, HDX-MS, disulfide bond,
-CD, DSC) are included; dropping them does not change the qualitative picture.
-
-Writes the degree table and regenerates the markdown report.
+The allowlist of binary methods is `drakkar.binary_methods`: stable PSI-MI
+terms (`BINARY_PSIMI_IDS`), matched on `dataset.psimi_id` -- never on the
+internal `methods.id`, which is not stable across database versions. See that
+module for the grouped allowlist and the rationale for what it excludes.
 
 Valid PPI filter applied, vh only.
 
@@ -43,80 +18,17 @@ Exports data/viral_protein_human_degree_binary.tsv and regenerates the
 markdown report.
 """
 
+from datetime import UTC, datetime
+from typing import Any
+
 import polars as pl
 
+from drakkar.binary_methods import BINARY_PSIMI_IDS
 from drakkar.db import fetch
-
-# drakkar methods.id -- see module docstring for the rationale / grouping
-BINARY_METHOD_IDS = (
-    # two-hybrid & reporter recruitment
-    18,
-    254,
-    255,
-    861,
-    1103,
-    1259,
-    532,
-    138,
-    459,
-    # protein-fragment complementation
-    78,
-    564,
-    99,
-    952,
-    786,
-    1214,
-    1263,
-    15,
-    12,
-    11,
-    533,
-    13,
-    # resonance energy transfer / homogeneous proximity
-    49,
-    357,
-    656,
-    # direct biophysical binding of purified partners
-    95,
-    672,
-    55,
-    718,
-    995,
-    47,
-    46,
-    17,
-    45,
-    983,
-    1059,
-    1240,
-    717,
-    44,
-    262,
-    643,
-    87,
-    16,
-    # structural
-    101,
-    66,
-    852,
-    579,
-    693,
-    265,
-    # immobilised-bait binding / display selection
-    77,
-    69,
-    72,
-    43,
-    56,
-    96,
-    102,
-    42,
-    267,
-    499,
-)
+from drakkar.runs import log_run
 
 PAIRS = """
-select distinct name2, taxon2, left_value2, accession1, method_id
+select distinct name2, taxon2, left_value2, accession1, psimi_id
 from dataset
 where state = 'curated'
   and is_obsolete1 is false
@@ -150,18 +62,33 @@ def roll_to_virus(pairs: pl.DataFrame, species: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
-    n_prot = degree.height
-    total = int(degree["n_human"].sum())
-    d = degree["n_human"]
+def summarise(degree: pl.DataFrame) -> dict[str, Any]:
+    """The degree distribution -- what the report and the run log both quote."""
+    n_human = pl.col("n_human")
+    summary = degree.select(
+        proteins=pl.len(),
+        pairs=n_human.sum(),
+        mean=n_human.mean(),
+        median=n_human.median(),
+        max=n_human.max(),
+        p75=n_human.quantile(0.75),
+        p90=n_human.quantile(0.9),
+        p95=n_human.quantile(0.95),
+        p99=n_human.quantile(0.99),
+    ).row(0, named=True)
 
-    qs = {q: int(d.quantile(q)) for q in (0.5, 0.75, 0.9, 0.95, 0.99)}
-    cum = degree.with_columns(cum=pl.col("n_human").cum_sum())
-    conc = {}
+    # the table is sorted, so the top k proteins are its first k rows
+    cum = degree.select(n_human.cum_sum())["n_human"]
+    summary["top"] = {}
     for frac in (0.01, 0.05, 0.10, 0.25):
-        k = max(1, round(n_prot * frac))
-        conc[frac] = (k, cum["cum"][k - 1] / total)
+        k = max(1, round(summary["proteins"] * frac))
+        summary["top"][frac] = (k, cum[k - 1] / summary["pairs"])
+    return summary
 
+
+def degree_report(
+    degree: pl.DataFrame, summary: dict[str, Any], title: str, intro: str
+) -> str:
     breaks = [2, 3, 6, 11, 26, 51, 101, 251]
     labels = ["1", "2", "3-5", "6-10", "11-25", "26-50", "51-100", "101-250", "250+"]
     hist = (
@@ -176,7 +103,7 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
     lines = [
         f"# {title}",
         "",
-        "**Date:** 2026-09-04  ",
+        f"**Date:** {datetime.now(UTC).date().isoformat()}  ",
         "**Source:** drakkar `dataset` MV, valid PPI filter, `vh` interactions only  ",
         "**Script:** `scripts/viral_protein_human_degree_binary.py`  ",
         f"**Export:** `{TSV}`",
@@ -185,27 +112,27 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
         "",
         "## Result",
         "",
-        f"- **{n_prot}** strain-abstracted viral proteins",
-        f"- **{total:,}** unique *(viral protein, human protein)* pairs",
+        f"- **{summary['proteins']}** strain-abstracted viral proteins",
+        f"- **{summary['pairs']:,}** unique *(viral protein, human protein)* pairs",
         "",
         "### Degree summary",
         "",
         "| statistic | value |",
         "|-----------|------:|",
-        f"| mean   | {d.mean():.1f} |",
-        f"| median | {int(d.median())} |",
-        f"| p75    | {qs[0.75]} |",
-        f"| p90    | {qs[0.9]} |",
-        f"| p95    | {qs[0.95]} |",
-        f"| p99    | {qs[0.99]} |",
-        f"| max    | {int(d.max()):,} |",
+        f"| mean   | {summary['mean']:.1f} |",
+        f"| median | {int(summary['median'])} |",
+        f"| p75    | {int(summary['p75'])} |",
+        f"| p90    | {int(summary['p90'])} |",
+        f"| p95    | {int(summary['p95'])} |",
+        f"| p99    | {int(summary['p99'])} |",
+        f"| max    | {summary['max']:,} |",
         "",
         "### Concentration",
         "",
         "| top viral proteins | count | share of all pairs |",
         "|--------------------|------:|-------------------:|",
     ]
-    for frac, (k, share) in conc.items():
+    for frac, (k, share) in summary["top"].items():
         lines.append(f"| top {frac:.0%} | {k} | {share:.1%} |")
     lines += [
         "",
@@ -229,7 +156,7 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
     pv = (
         degree.group_by("virus")
         .agg(n_prot=pl.len(), pairs=pl.col("n_human").sum())
-        .sort("pairs", descending=True)
+        .sort(["pairs", "virus"], descending=[True, False])
         .head(10)
     )
     lines += [
@@ -247,8 +174,8 @@ def degree_report(degree: pl.DataFrame, title: str, intro: str) -> str:
         "## Binary detection methods used",
         "",
         (
-            "See `scripts/viral_protein_human_degree_binary.py` docstring for the "
-            "full rationale. Allowlist = two-hybrid & reporter-recruitment, "
+            "See `drakkar/binary_methods.py` for the full rationale. "
+            "Allowlist = two-hybrid & reporter-recruitment, "
             "protein-fragment complementation, resonance energy transfer, direct "
             "biophysical binding of purified partners, structural methods, and "
             "immobilised-bait / display binding. Excluded: AP-MS, co-IP, pull-down, "
@@ -278,7 +205,7 @@ def main() -> None:
     rolled = roll_to_virus(pairs, species)
 
     binary_pairs = (
-        rolled.filter(pl.col("method_id").is_in(BINARY_METHOD_IDS))
+        rolled.filter(pl.col("psimi_id").is_in(BINARY_PSIMI_IDS))
         .select("virus", "name2", "accession1")
         .unique()
     )
@@ -286,12 +213,14 @@ def main() -> None:
     degree = (
         binary_pairs.group_by("virus", "name2")
         .agg(n_human=pl.len())
-        .sort("n_human", descending=True)
+        .sort(["n_human", "virus", "name2"], descending=[True, False, False])
     )
     degree.write_csv(TSV, separator="\t")
 
+    summary = summarise(degree)
     report = degree_report(
         degree,
+        summary,
         "Human-interactor degree of viral proteins -- binary-method interactions",
         (
             "Only *(viral protein, human protein)* pairs with at least one "
@@ -304,9 +233,28 @@ def main() -> None:
     with open(MD, "w") as fh:
         fh.write(report)
 
-    print(f"binary-supported pairs: {int(degree['n_human'].sum()):,}")
-    print(f"viral proteins        : {degree.height}")
+    print(f"binary-supported pairs: {summary['pairs']:,}")
+    print(f"viral proteins        : {summary['proteins']}")
     print(degree.head(15))
+
+    _, top1 = summary["top"][0.01]
+    _, top10 = summary["top"][0.10]
+    log_run(
+        "scripts/viral_protein_human_degree_binary.py",
+        f"{TSV} + {MD}",
+        {
+            "binary-supported pairs": summary["pairs"],
+            "viral proteins": summary["proteins"],
+            "degree": (
+                f"mean {summary['mean']:.1f}, median {int(summary['median'])}, "
+                f"max {summary['max']:,}, p90 = {int(summary['p90'])}, "
+                f"p99 = {int(summary['p99'])}"
+            ),
+            "concentration": (
+                f"top 1% hold {top1:.1%} of pairs, top 10% hold {top10:.1%}"
+            ),
+        },
+    )
 
 
 if __name__ == "__main__":
