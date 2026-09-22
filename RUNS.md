@@ -88,3 +88,10 @@ Append-only log of dataset exports. Each run appends one section below via
 - problem duplicate_occurrence: 9
 - problem empty_isoforms: 16
 - problem repeated_isoform_block: 13
+
+## 2026-09-22 -- scripts/graph_descriptions.py
+
+- output: `data/graph-2026-09-09/descriptions.tsv, data/graph-2026-09-09/publications.tsv, data/graph-2026-09-09/peptides.tsv`
+- database: drakkar_2026_09
+- publications: 14,929
+- peptides: 4,593

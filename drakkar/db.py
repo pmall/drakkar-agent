@@ -36,6 +36,33 @@ def fetch(sql: str, params: tuple | dict | None = None) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=cols, orient="row", infer_schema_length=None)
 
 
+def stream(sql: str, path: str | Path) -> None:
+    """Stream a SELECT straight to .csv/.tsv via COPY, without holding rows.
+
+    Same output as ``export`` (RFC 4180 quoting, header, empty field for
+    NULL), but the result set never lands in memory on either side -- use it
+    instead of ``export`` for datasets large enough to be worth not holding
+    as a DataFrame.
+    """
+    path = Path(path)
+    delimiters = {".csv": ",", ".tsv": "\t"}
+    if path.suffix not in delimiters:
+        raise ValueError(f"unsupported output format: {path.suffix}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    copy = (
+        f"COPY ({sql}) TO STDOUT "
+        f"WITH (FORMAT csv, DELIMITER '{delimiters[path.suffix]}', HEADER)"
+    )
+    with (
+        connect() as conn,
+        conn.cursor() as cur,
+        path.open("wb") as fh,
+        cur.copy(copy) as reader,
+    ):
+        for chunk in reader:
+            fh.write(chunk)
+
+
 def export(
     sql: str, path: str | Path, params: tuple | dict | None = None
 ) -> pl.DataFrame:
