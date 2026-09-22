@@ -128,3 +128,24 @@ Append-only log of dataset exports. Each run appends one section below via
 - viral proteins: 1,051
 - degree: mean 13.2, median 2, max 430, p90 = 23, p99 = 230
 - concentration: top 1% hold 26.6% of pairs, top 10% hold 75.9%
+
+## 2026-09-22 -- scripts/dataset_integrity.py
+
+- output: `data/dataset_integrity.tsv + reports/dataset_integrity.md`
+- database: drakkar_2026_09
+- valid descriptions audited: 403,121
+- of them carrying a mapping: 18,825
+- mapping entries audited: 25,925
+- mapping occurrences audited: 44,487
+- problems: 914
+- descriptions requiring correction: 888
+- mapping problems on peptides: 45
+- problem description/duplicated: 216
+- problem description/not_in_dataset_view: 1
+- problem mapping/duplicated_occurrence: 9
+- problem mapping/no_isoform: 16
+- problem mapping/position_mismatch: 36
+- problem mapping/position_off_sequence: 1
+- problem mapping/repeated_isoform: 13
+- problem protein/name_not_uniprot: 2
+- problem protein/not_full_length: 620
