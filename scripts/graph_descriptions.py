@@ -32,6 +32,11 @@ is `"LastName Initials"` per author (collective names kept as is), `"; "`
 `MedlineDate` when `PubDate` carries no `Year`; a structured abstract's parts
 are joined with a space; missing fields come out empty.
 
+Titles and abstracts carry literal newlines and tabs from the PubMed markup,
+so every field is whitespace-collapsed on the way out and the file is written
+unquoted: one record is one line, and a quote inside an abstract is a plain
+character rather than a field delimiter.
+
 `peptides.tsv` -- the short binding regions curators reported, both sides
 together, one row per distinct peptide of a description's protein:
 
@@ -146,7 +151,9 @@ def _text(node: Any) -> str:
     if node is None:
         return ""
     if isinstance(node, str):
-        return node.strip()
+        # Collapsed, not just stripped: the markup puts newlines and tabs
+        # inside titles and abstracts, and they would break the TSV grain.
+        return " ".join(node.split())
     if isinstance(node, list):
         return " ".join(filter(None, (_text(item) for item in node)))
     if isinstance(node, dict):
@@ -271,7 +278,7 @@ def main(out: Path) -> None:
     stream(DESCRIPTIONS_QUERY, descriptions_tsv)
 
     pubs = publications()
-    pubs.write_csv(publications_tsv, separator="\t")
+    pubs.write_csv(publications_tsv, separator="\t", quote_style="never")
 
     peps = peptides()
     peps.write_csv(peptides_tsv, separator="\t")
