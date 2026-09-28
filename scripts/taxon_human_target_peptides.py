@@ -26,15 +26,15 @@ A peptide is a mapping entry of 5-20 aa inclusive located on the target's
 *partner* in a valid description: another human protein (`hh`, the target
 on either side) or a viral protein of any virus (`vh`). Entries are
 read through `drakkar.mappings.occurrences`, which places each one on the
-sequence it was curated on, so an entry that fits nowhere on its protein
-yields no peptide at all.
+protein's sequences, so an entry that fits nowhere on its protein yields no
+peptide at all.
 
 The source is the protein the peptide lies on, identified by the
 `(accession, start, stop)` triple of the description's partner side, and
 `source_sequence` is its sequence -- the mature region for a viral
-polyprotein. A peptide curated on an isoform is reported on the canonical
-source wherever its sequence occurs there; only one absent from the
-canonical keeps the isoform as source, as `(isoform, 1, length)`.
+polyprotein. A peptide is on an isoform only when it is absent from the
+canonical sequence (see `occurrences`); the isoform is then the source, as
+`(isoform, 1, length)`.
 `peptide_start` / `peptide_stop` are 1-based on `source_sequence`.
 `source_type` is `h` or `v`.
 
@@ -51,7 +51,7 @@ import re
 import polars as pl
 
 from drakkar.db import ROOT, connect, fetch
-from drakkar.mappings import Occurrence, occurrences
+from drakkar.mappings import occurrences
 from drakkar.runs import log_run
 
 PEPTIDE_MIN, PEPTIDE_MAX = 5, 20
@@ -114,26 +114,6 @@ def _sources(
     return {accession: canonical[start - 1 : stop]}
 
 
-def _placements(
-    occurrence: Occurrence, sources: dict[str, str], accession: str
-) -> list[tuple[str, int, int]]:
-    """Where to report an occurrence: `(accession, start, stop)` of the peptide.
-
-    An occurrence placed on an isoform is moved to every position of its
-    sequence on the canonical one, and stays on the isoform only when the
-    sequence is not on the canonical at all.
-    """
-    canonical = sources[accession]
-    peptide = occurrence.sequence
-    if occurrence.accession != accession:
-        starts = [
-            i + 1 for i in range(len(canonical)) if canonical.startswith(peptide, i)
-        ]
-        if starts:
-            return [(accession, start, start + len(peptide) - 1) for start in starts]
-    return [(occurrence.accession, occurrence.start, occurrence.stop)]
-
-
 def peptides(targets: dict[str, str]) -> pl.DataFrame:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(MAPPINGS_QUERY, {"targets": list(targets)})
@@ -153,27 +133,24 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
             protein = sequences[protein_id]
             sources = _sources(protein, accession, start, stop)
             for occurrence in occurrences(mapping, sources, PEPTIDE_MIN, PEPTIDE_MAX):
-                for source_accession, peptide_start, peptide_stop in _placements(
-                    occurrence, sources, accession
-                ):
-                    # An isoform source is full length: its triple is
-                    # (isoform, 1, length).
-                    source_sequence = sources[source_accession]
-                    on_isoform = source_accession != accession
-                    records.append(
-                        {
-                            "sequence": occurrence.sequence,
-                            "target_accession": target_accession,
-                            "target_name": targets[target_accession],
-                            "source_type": type_,
-                            "source_accession": source_accession,
-                            "source_start": 1 if on_isoform else start,
-                            "source_stop": len(source_sequence) if on_isoform else stop,
-                            "peptide_start": peptide_start,
-                            "peptide_stop": peptide_stop,
-                            "source_sequence": source_sequence,
-                        }
-                    )
+                # An isoform source is full length: its triple is
+                # (isoform, 1, length).
+                source_sequence = sources[occurrence.accession]
+                on_isoform = occurrence.accession != accession
+                records.append(
+                    {
+                        "sequence": occurrence.sequence,
+                        "target_accession": target_accession,
+                        "target_name": targets[target_accession],
+                        "source_type": type_,
+                        "source_accession": occurrence.accession,
+                        "source_start": 1 if on_isoform else start,
+                        "source_stop": len(source_sequence) if on_isoform else stop,
+                        "peptide_start": occurrence.start,
+                        "peptide_stop": occurrence.stop,
+                        "source_sequence": source_sequence,
+                    }
+                )
     # The same peptide at the same place, reported by several descriptions, is
     # one row.
     return (

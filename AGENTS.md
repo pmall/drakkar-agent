@@ -7,7 +7,7 @@ producing datasets. Curated human–human (`hh`) and human–viral (`vh`) PPIs.
 
 ```
 drakkar/db.py              connection + query helpers (loads .env via python-dotenv)
-drakkar/mappings.py        reading mapping1/mapping2 occurrences, placed on their source
+drakkar/mappings.py        reading mapping1/mapping2 occurrences
 drakkar/binary_methods.py  shared binary detection-method definition (PSI-MI ids)
 drakkar/runs.py            append-only run log helper
 scripts/                   one dataset script per file
@@ -61,15 +61,14 @@ Defaults for every dataset script; follow them without asking.
   nothing else: when the request says "all sources" or "any", every other step spans
   both interactomes and every virus.
 - **Peptides.** 5–20 aa inclusive (see **Peptides**), identity below 100 kept, read
-  through `drakkar.mappings.source_occurrences`. A peptide binding a protein is a
+  through `drakkar.mappings.occurrences`. A peptide binding a protein is a
   mapping on that protein's *partner* side of the description, never on the protein
   itself; in `hh` the protein may be on either side.
 - **Peptide columns** depend on the script: the distinct sequences alone, or with the
   source, the target, or both, optionally with coordinates on the source. A source is
   its `(accession, start, stop)` triple, coordinates are on the source sequence, and
   a peptide on the canonical sequence is reported there even if curated on an isoform
-  (`source_occurrences` does all this). If the request doesn't make the columns
-  clear, ask.
+  (`occurrences` does this). If the request doesn't make the columns clear, ask.
 - **Output files.** Sequences go in the last columns, since they make a file
   unreadable otherwise. File names are the dataset name with an underscore suffix
   (`descriptions_hh.tsv`), parameterized ones named after the parameter
@@ -232,14 +231,11 @@ common case).
   on the polyprotein is `start2 + occurrence.start - 1`. On the human side
   `start1 = 1`, so the two frames coincide.
 
-Read them through `drakkar.mappings` rather than by hand. `occurrences` normalizes
+Read them through `drakkar.mappings.occurrences` rather than by hand: it normalizes
 the JSON (coordinates and identities are stored as strings about a third of the time),
 flattens it to one row per occurrence, and corrects each position against the sequence
-it was curated on. `source_occurrences` wraps it for one description side: given the
-side's `proteins.sequences` and triple, it reports each occurrence on its source
-protein, with the source sequence (mature region for a mature viral protein) and
-coordinates on it; the canonical sequence wins over an isoform whenever the peptide
-occurs on both. Dataset scripts use `source_occurrences`.
+it was curated on. An occurrence curated on an isoform is reported on the canonical
+sequence whenever its sequence is there; it stays on the isoform only otherwise.
 
 Odd-looking occurrences are usually documented cases, flagged by `how` — e.g. a
 curated peptide carrying an initiator Met its mature protein lacks is kept at its

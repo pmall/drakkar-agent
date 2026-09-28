@@ -17,7 +17,8 @@ Peptides are matched against every sequence of their protein: the mature
 protein alone when it is one, since a mature protein is a region of a
 polyprotein and has no isoforms of its own, and the canonical sequence plus
 its isoforms for a viral protein curated full length. A peptide curated on an
-isoform is therefore positioned on that isoform.
+isoform is positioned on the canonical sequence when it occurs there, and on
+the isoform only otherwise.
 
 One row per distinct peptide sequence (a sequence can occur on more than one
 mature protein, or more than once on the same one). Columns:

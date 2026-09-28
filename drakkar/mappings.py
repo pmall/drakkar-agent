@@ -10,9 +10,8 @@ sufficient to bind the partner, with the positions they recorded it at:
 `occurrences` normalises that (coordinates and identities are stored as JSON
 strings about a third of the time), flattens it to one row per occurrence,
 and corrects each position against the protein sequence it was curated on.
-`source_occurrences` builds on it for one side of a description: it picks
-the sequences to search from the side's protein and reports each occurrence
-on that protein, the canonical sequence taking precedence over an isoform.
+An occurrence is reported on the canonical sequence whenever its sequence
+is there, even if it was curated on an isoform.
 """
 
 from __future__ import annotations
@@ -63,7 +62,9 @@ class Occurrence(NamedTuple):
     - `relocated` -- it does not read back, but the sequence is on the
       protein, so the match nearest it is taken. A position curated in
       another frame lands here: the polyprotein rather than the mature
-      protein, or one isoform rather than another.
+      protein, or one isoform rather than another. So does an occurrence
+      curated on an isoform whose sequence is also on the canonical one: it
+      is reported on the canonical sequence, at every position it occurs.
     - `searched` -- the entry recorded no position, or recorded one against
       an accession with no sequence given, so the sequence was searched for.
       Every match is an occurrence: a sequence does occur twice on the same
@@ -115,7 +116,14 @@ def occurrences(
             continue
         for isoform in entry["isoforms"]:
             accession = isoform["accession"]
+            canonical = _canonical(accession)
             for occurrence in isoform["occurrences"]:
+                if accession != canonical and canonical in sequences:
+                    hits = _positions(sequences[canonical], curated)
+                    if hits:
+                        for position in hits:
+                            yield _row(curated, canonical, position, "relocated")
+                        continue
                 sequence = sequences.get(accession)
                 if sequence is None:
                     yield from _search(curated, sequences)
@@ -126,98 +134,24 @@ def occurrences(
                     yield _row(curated, accession, position, how)
 
 
-class SourceOccurrence(NamedTuple):
-    """One mapping occurrence, placed on the protein it belongs to.
-
-    The source is identified by its `(accession, start, stop)` triple --
-    the description's `(accessionN, startN, stopN)`, or `(isoform, 1,
-    length)` for an occurrence found on an isoform only. `source_sequence`
-    is its sequence, the mature region for a mature viral protein, and
-    `start` / `stop` are 1-based on it. `how` is as in `Occurrence`, and
-    `relocated` for an isoform occurrence moved to the canonical sequence.
-    """
-
-    sequence: str
-    source_accession: str
-    source_start: int
-    source_stop: int
-    source_sequence: str
-    start: int
-    stop: int
-    how: How
-
-
-def source_occurrences(
-    mapping: list[Entry],
-    protein: dict[str, str],
-    accession: str,
-    start: int,
-    stop: int,
-    min_length: int,
-    max_length: int,
-) -> Iterator[SourceOccurrence]:
-    """Yield every occurrence of a description side's mapping on its protein.
-
-    `protein` is the side's `proteins.sequences` (canonical accession and
-    isoforms) and `(accession, start, stop)` its identifier triple. An
-    occurrence curated on an isoform is reported on the canonical source at
-    every position its sequence occurs there, and keeps the isoform as
-    source only when the sequence is not on the canonical at all.
-    """
-    sources = _sources(protein, accession, start, stop)
-    canonical = sources[accession]
-    for occurrence in occurrences(mapping, sources, min_length, max_length):
-        peptide = occurrence.sequence
-        on_isoform = occurrence.accession != accession
-        positions = _positions(canonical, peptide) if on_isoform else []
-        if not positions:
-            source = sources[occurrence.accession]
-            yield SourceOccurrence(
-                peptide,
-                occurrence.accession,
-                1 if on_isoform else start,
-                len(source) if on_isoform else stop,
-                source,
-                occurrence.start,
-                occurrence.stop,
-                occurrence.how,
-            )
-            continue
-        for position in positions:
-            yield SourceOccurrence(
-                peptide,
-                accession,
-                start,
-                stop,
-                canonical,
-                position,
-                position + len(peptide) - 1,
-                "relocated",
-            )
-
-
-def _sources(
-    protein: dict[str, str], accession: str, start: int, stop: int
-) -> dict[str, str]:
-    """The sequences a mapping on this protein can have been curated on.
-
-    A protein curated full length -- every human protein, and a viral protein
-    that is not a mature one -- brings its canonical sequence and its
-    isoforms, since a mapping may have been located on an isoform. A mature
-    viral protein is a region of a polyprotein and has no isoforms of its
-    own, so its mature region is the only sequence to match against.
-    """
-    canonical = protein[accession]
-    if start == 1 and stop == len(canonical):
-        return protein
-    return {accession: canonical[start - 1 : stop]}
-
-
 def _search(curated: str, sequences: dict[str, str]) -> Iterator[Occurrence]:
-    """Yield an occurrence per exact match of `curated` in `sequences`."""
-    for accession, sequence in sequences.items():
-        for position in _positions(sequence, curated):
-            yield _row(curated, accession, position, "searched")
+    """Yield an occurrence per exact match of `curated` in `sequences`.
+
+    Matches on isoforms are yielded only when there is none on the canonical
+    sequence.
+    """
+    rows = [
+        _row(curated, accession, position, "searched")
+        for accession, sequence in sequences.items()
+        for position in _positions(sequence, curated)
+    ]
+    on_canonical = [row for row in rows if row.accession == _canonical(row.accession)]
+    yield from on_canonical or rows
+
+
+def _canonical(accession: str) -> str:
+    """The canonical accession of an isoform (`P12345-2` -> `P12345`)."""
+    return accession.split("-")[0]
 
 
 def _correct(
