@@ -156,3 +156,15 @@ Append-only log of dataset exports. Each run appends one section below via
 - database: drakkar_2026_09
 - viral proteins: 3,642
 - peptides: 4,593
+
+## 2026-09-28 -- scripts/taxon_human_target_peptides.py
+
+- output: `data/ebolavirus_human_targets.tsv + data/ebolavirus_target_peptides.tsv`
+- database: drakkar_2026_09
+- taxon: Ebolavirus (NCBI 186536)
+- human targets: 1,252
+- target descriptions: 1,896
+- peptides: 1,549
+- distinct peptide sequences: 1,019
+- peptides from human sources: 417
+- peptides from viral sources: 1,132
