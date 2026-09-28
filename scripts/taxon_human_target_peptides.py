@@ -8,11 +8,14 @@ viral protein under the taxon, i.e. `accession1` of the valid `vh`
 descriptions whose `left_value2` falls in the taxon's nested-set bounds, so
 every strain below it counts:
 
-  accession, name, descriptions
+  accession, name, descriptions, interactions, viral_proteins
 
 `name` is the target's distinct `name1` values, `", "`-separated should
 there be several. `descriptions` is the number of those descriptions
-involving the target.
+involving the target, `interactions` the number of distinct viral proteins
+among them -- an interaction is a protein pair, and the target is one side
+of each. `viral_proteins` lists those viral proteins as
+`accession:start-stop` triples, `", "`-separated.
 
 `<taxon>_target_peptides.tsv` -- the peptides reported as binding one of
 those targets, one row per distinct (peptide, target, source protein,
@@ -74,7 +77,11 @@ TARGETS_QUERY = f"""
 SELECT
     d.accession1 AS accession,
     string_agg(DISTINCT d.name1, ', ' ORDER BY d.name1) AS name,
-    count(*) AS descriptions
+    count(*) AS descriptions,
+    count(DISTINCT (d.accession2, d.start2, d.stop2)) AS interactions,
+    string_agg(
+        DISTINCT d.accession2 || ':' || d.start2 || '-' || d.stop2, ', '
+    ) AS viral_proteins
 FROM dataset d
 WHERE {VALID}
   AND d.type = 'vh'
@@ -193,6 +200,7 @@ def main(ncbi_taxon_id: int) -> None:
             "taxon": f"{name} (NCBI {ncbi_taxon_id})",
             "human targets": targets.height,
             "target descriptions": int(targets["descriptions"].sum()),
+            "target interactions": int(targets["interactions"].sum()),
             "peptides": peps.height,
             "distinct peptide sequences": peps["sequence"].n_unique(),
             "peptides from human sources": int((source_types == "h").sum()),

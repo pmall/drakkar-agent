@@ -138,12 +138,24 @@ rather than assuming this file is exhaustive.
 
 ### Grain
 
+Runs > descriptions > interactions.
+
+A **run** is a batch of publications the curation team processed together
+(`run`/`run_id`).
+
 One row per **description** = *(publication × detection method × protein 1 region ×
 protein 2 region)*. `stable_id` identifies a description across its revisions;
 `deleted_at IS NULL` selects the current revision.
 
-A **run** is a batch of publications the curation team processed together
-(`run`/`run_id`).
+An **interaction** is a protein pair: *(human accession, human accession)*, unordered,
+in `hh`, *(human accession, viral triple)* in `vh` (see **Mature viral proteins**).
+Many descriptions — publications, methods — support one interaction. "How many
+interactions" counts distinct pairs, never description rows; a protein's interactions
+are its distinct partners.
+
+A list of interactions spanning both `hh` and `vh` always gives the partner as the
+three columns `accession, start, stop`, human partners included: their `start` /
+`stop` are either NULL or `(1, length)`.
 
 ### Valid PPI description — always apply
 

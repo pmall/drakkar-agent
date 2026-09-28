@@ -164,6 +164,7 @@ Append-only log of dataset exports. Each run appends one section below via
 - taxon: Ebolavirus (NCBI 186536)
 - human targets: 1,252
 - target descriptions: 1,896
+- target interactions: 1,685
 - peptides: 1,549
 - distinct peptide sequences: 1,019
 - peptides from human sources: 417
