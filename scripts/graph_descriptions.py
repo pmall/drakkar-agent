@@ -1,41 +1,32 @@
-"""All valid PPI descriptions with their proteins, publications and peptides.
+"""All valid PPI descriptions with their viral proteins and peptides.
 
-Exported as three TSV files into the folder given on the command line, a
-graph of the curated interactome: descriptions are the edges, publications
-and peptides hang off them by `stable_id` / `pmid`.
+Exported as four TSV files into the folder given on the command line, a
+graph of the curated interactome: descriptions are the edges, viral proteins
+and peptides hang off them by protein triple / `stable_id`.
 
-`descriptions.tsv` -- one row per valid description, i.e. the MV grain
-*(publication x detection method x protein 1 region x protein 2 region)*.
-Both interactomes are included; `type` tells them apart (`hh` / `vh`).
+`descriptions_hh.tsv` / `descriptions_vh.tsv` -- one row per valid
+description of each interactome, i.e. the MV grain *(publication x detection
+method x protein 1 region x protein 2 region)*, with the same columns:
 
-  stable_id, type, pmid,
-  psimi_id, method,
-  accession1, start1, stop1, name1, description1, ncbi_taxon_id1,
-  accession2, start2, stop2, name2, description2, ncbi_taxon_id2
+  stable_id, pmid, psimi_id,
+  accession1, start1, stop1, name1, ncbi_taxon_id1,
+  accession2, start2, stop2, name2, ncbi_taxon_id2
 
 Each protein is identified by its `(accession, start, stop)` triple -- never
 by accession alone, since one viral polyprotein accession yields many mature
-proteins at different coordinates. Human proteins (side 1) are always full
-length, so their triple is always `(accession1, 1, length)`. `ncbi_taxon_idN`
-is the protein's NCBI taxon: 9606 on side 1, and on side 2 the strain-level
-taxon of a viral protein. Sequences are deliberately not exported; recover
-them from `proteins.sequences`.
+proteins at different coordinates. Human proteins are always full length, so
+their triple is always `(accession, 1, length)`. `ncbi_taxon_idN` is the
+protein's NCBI taxon: 9606 for a human protein, the strain-level taxon for a
+viral one.
 
-`publications.tsv` -- one row per distinct pmid referenced above, so the
-article metadata is not repeated on every description:
+`viral_proteins.tsv` -- one row per distinct viral protein of
+`descriptions_vh.tsv`, mature or full length:
 
-  pmid, title, year, journal, authors, abstract
+  accession, start, stop, name, ncbi_taxon_id, sequence
 
-Parsed out of the PubMed record stored in `publications.metadata`: `authors`
-is `"LastName Initials"` per author (collective names kept as is), `"; "`
--separated in author order; `year` falls back to the leading year of
-`MedlineDate` when `PubDate` carries no `Year`; a structured abstract's parts
-are joined with a space; missing fields come out empty.
-
-Titles and abstracts carry literal newlines and tabs from the PubMed markup,
-so every field is whitespace-collapsed on the way out and the file is written
-unquoted: one record is one line, and a quote inside an abstract is a plain
-character rather than a field delimiter.
+keyed on the `(accession2, start2, stop2)` triple, with the curator-chosen
+`name2`, and `sequence` the `start`-`stop` region of the accession's
+canonical sequence -- the mature protein itself for a polyprotein region.
 
 `peptides.tsv` -- the short binding regions curators reported, both sides
 together, one row per distinct peptide of a description's protein:
@@ -49,10 +40,10 @@ sequence it was curated on, so an entry that fits nowhere on its protein
 yields no peptide at all. The position it was placed at is *not* exported:
 the peptide is attached to the protein it belongs to, by that protein's
 identifier triple, which is the description's `(accessionN, startN, stopN)`
-and joins back to `descriptions.tsv`. `source_type` is that protein's
+and joins back to the descriptions files. `source_type` is that protein's
 `typeN` -- `h` for a human protein, `v` for a viral one, so side 1 is always
 `h`. Occurrences that differ only by position therefore collapse to one
-row.
+row. The file covers both interactomes.
 
 Valid PPI filter applied (curated, both accessions live, current revision).
 
@@ -62,10 +53,8 @@ Run: uv run python scripts/graph_descriptions.py data/graph
 from __future__ import annotations
 
 import argparse
-import json
-import re
 from pathlib import Path
-from typing import Any
+from typing import Literal
 
 import polars as pl
 
@@ -73,57 +62,54 @@ from drakkar.db import connect, fetch, stream
 from drakkar.mappings import occurrences
 from drakkar.runs import log_run
 
+type Interactome = Literal["hh", "vh"]
+
 PEPTIDE_MIN, PEPTIDE_MAX = 5, 20
 
 VALID = """
-    state = 'curated'
-    AND is_obsolete1 IS FALSE
-    AND is_obsolete2 IS FALSE
-    AND deleted_at IS NULL
+    d.state = 'curated'
+    AND d.is_obsolete1 IS FALSE
+    AND d.is_obsolete2 IS FALSE
+    AND d.deleted_at IS NULL
 """
 
 DESCRIPTIONS_QUERY = f"""
 SELECT
     stable_id,
-    type,
     pmid,
     psimi_id,
-    method,
     accession1,
     start1,
     stop1,
     name1,
-    description1,
     ncbi_taxon_id1,
     accession2,
     start2,
     stop2,
     name2,
-    description2,
     ncbi_taxon_id2
-FROM dataset
+FROM dataset d
 WHERE {VALID}
+  AND d.type = '{{interactome}}'
 ORDER BY pmid, accession1, accession2, start2, stop2, psimi_id, stable_id
 """
 
-# Only the Article subtree is pulled back: the full PubMed record carries
-# MeSH, chemicals and history we do not export.
-#
-# GROUP BY, not SELECT DISTINCT: pmid is the publications primary key, so
-# grouping on it alone is enough to select the metadata, and the subtree is
-# then extracted once per publication. Under DISTINCT the extracted ~5 kB of
-# JSON is part of the dedup key instead, so all 400k joined rows carry it
-# through the sort.
-PUBLICATIONS_QUERY = f"""
-SELECT
-    p.pmid,
-    (p.metadata -> 'PubmedArticle' -> 'MedlineCitation' -> 'Article')::text
-        AS article
+# name2 and the taxon are stable per triple, so DISTINCT yields one row per
+# viral protein; main() checks it does.
+VIRAL_PROTEINS_QUERY = f"""
+SELECT DISTINCT
+    d.accession2 AS accession,
+    d.start2 AS start,
+    d.stop2 AS stop,
+    d.name2 AS name,
+    d.ncbi_taxon_id2 AS ncbi_taxon_id,
+    substring(p.sequences->>d.accession2 FROM d.start2 FOR d.stop2 - d.start2 + 1)
+        AS sequence
 FROM dataset d
-JOIN publications p ON p.pmid = d.pmid
+JOIN proteins p ON p.id = d.protein2_id
 WHERE {VALID}
-GROUP BY p.pmid
-ORDER BY p.pmid
+  AND d.type = 'vh'
+ORDER BY accession, start, stop
 """
 
 # Descriptions reporting a binding region on either side -- a few percent of
@@ -133,93 +119,17 @@ SELECT
     stable_id,
     protein1_id, type1, accession1, start1, stop1, mapping1,
     protein2_id, type2, accession2, start2, stop2, mapping2
-FROM dataset
+FROM dataset d
 WHERE {VALID}
   AND (json_array_length(mapping1) > 0 OR json_array_length(mapping2) > 0)
 ORDER BY stable_id
 """
 
-YEAR_RE = re.compile(r"\d{4}")
 
-
-def _text(node: Any) -> str:
-    """Flatten a PubMed JSON text node to a plain string.
-
-    A node is a string, a list of nodes (structured abstract, inline markup)
-    or an object whose non-attribute values hold the text.
-    """
-    if node is None:
-        return ""
-    if isinstance(node, str):
-        # Collapsed, not just stripped: the markup puts newlines and tabs
-        # inside titles and abstracts, and they would break the TSV grain.
-        return " ".join(node.split())
-    if isinstance(node, list):
-        return " ".join(filter(None, (_text(item) for item in node)))
-    if isinstance(node, dict):
-        return " ".join(
-            filter(
-                None,
-                (_text(v) for k, v in node.items() if k != "@attributes"),
-            )
-        )
-    return str(node)
-
-
-def _author(author: Any) -> str:
-    if not isinstance(author, dict):
-        return _text(author)
-    collective = _text(author.get("CollectiveName"))
-    if collective:
-        return collective
-    initials = _text(author.get("Initials")) or _text(author.get("ForeName"))
-    parts = (_text(author.get("LastName")), initials, _text(author.get("Suffix")))
-    return " ".join(part for part in parts if part)
-
-
-def _authors(article: dict[str, Any]) -> str:
-    authors = (article.get("AuthorList") or {}).get("Author")
-    if authors is None:
-        return ""
-    if not isinstance(authors, list):
-        authors = [authors]
-    return "; ".join(filter(None, (_author(a) for a in authors)))
-
-
-def _year(article: dict[str, Any]) -> str:
-    journal = article.get("Journal") or {}
-    pubdate = (journal.get("JournalIssue") or {}).get("PubDate") or {}
-    year = _text(pubdate.get("Year"))
-    if year:
-        return year
-    match = YEAR_RE.search(_text(pubdate.get("MedlineDate")))
-    return match.group(0) if match else ""
-
-
-def _publication(pmid: int, article: dict[str, Any]) -> dict[str, Any]:
-    journal = article.get("Journal") or {}
-    return {
-        "pmid": pmid,
-        "title": _text(article.get("ArticleTitle")),
-        "year": _year(article),
-        "journal": _text(journal.get("Title")),
-        "authors": _authors(article),
-        "abstract": _text((article.get("Abstract") or {}).get("AbstractText")),
-    }
-
-
-def publications() -> pl.DataFrame:
-    rows = fetch(PUBLICATIONS_QUERY)
-    missing = rows.filter(pl.col("article").is_null())["pmid"].to_list()
-    if missing:
-        # Book chapters and unpopulated records have no Article subtree; fail
-        # loudly rather than exporting rows with every field blank.
-        raise RuntimeError(
-            f"{len(missing)} pmid(s) without a PubmedArticle record, e.g. {missing[:5]}"
-        )
-    return pl.DataFrame(
-        [_publication(pmid, json.loads(article)) for pmid, article in rows.iter_rows()]
-    )
+def descriptions_query(interactome: Interactome) -> str:
+    # COPY takes no bind parameters, so the interactome is formatted in; it is
+    # an Interactome literal, never outside input.
+    return DESCRIPTIONS_QUERY.format(interactome=interactome)
 
 
 def _sources(
@@ -268,29 +178,43 @@ def peptides() -> pl.DataFrame:
     return pl.DataFrame(records).unique(maintain_order=True)
 
 
+def viral_proteins() -> pl.DataFrame:
+    proteins = fetch(VIRAL_PROTEINS_QUERY)
+    triples = proteins.select("accession", "start", "stop").n_unique()
+    if triples != proteins.height:
+        raise RuntimeError(
+            f"{proteins.height - triples} viral protein triple(s) with more than "
+            "one name, taxon or sequence"
+        )
+    return proteins
+
+
 def main(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    descriptions_tsv = out / "descriptions.tsv"
-    publications_tsv = out / "publications.tsv"
+    hh_descriptions_tsv = out / "descriptions_hh.tsv"
+    vh_descriptions_tsv = out / "descriptions_vh.tsv"
+    viral_proteins_tsv = out / "viral_proteins.tsv"
     peptides_tsv = out / "peptides.tsv"
 
     # 400k rows: streamed to disk rather than materialised as a DataFrame.
-    stream(DESCRIPTIONS_QUERY, descriptions_tsv)
+    stream(descriptions_query("hh"), hh_descriptions_tsv)
+    stream(descriptions_query("vh"), vh_descriptions_tsv)
 
-    pubs = publications()
-    pubs.write_csv(publications_tsv, separator="\t", quote_style="never")
+    viral = viral_proteins()
+    viral.write_csv(viral_proteins_tsv, separator="\t")
 
     peps = peptides()
     peps.write_csv(peptides_tsv, separator="\t")
 
     log_run(
         "scripts/graph_descriptions.py",
-        f"{descriptions_tsv}, {publications_tsv}, {peptides_tsv}",
-        {"publications": pubs.height, "peptides": peps.height},
+        f"{hh_descriptions_tsv}, {vh_descriptions_tsv}, "
+        f"{viral_proteins_tsv}, {peptides_tsv}",
+        {"viral proteins": viral.height, "peptides": peps.height},
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export the drakkar PPI graph.")
-    parser.add_argument("out", type=Path, help="folder the three TSV files go to")
+    parser.add_argument("out", type=Path, help="folder the four TSV files go to")
     main(parser.parse_args().out)

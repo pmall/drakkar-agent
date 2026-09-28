@@ -149,3 +149,10 @@ Append-only log of dataset exports. Each run appends one section below via
 - problem mapping/repeated_isoform: 13
 - problem protein/name_not_uniprot: 2
 - problem protein/not_full_length: 620
+
+## 2026-09-28 -- scripts/graph_descriptions.py
+
+- output: `data/graph/descriptions_hh.tsv, data/graph/descriptions_vh.tsv, data/graph/viral_proteins.tsv, data/graph/peptides.tsv`
+- database: drakkar_2026_09
+- viral proteins: 3,642
+- peptides: 4,593
