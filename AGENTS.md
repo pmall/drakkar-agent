@@ -7,7 +7,7 @@ producing datasets. Curated human–human (`hh`) and human–viral (`vh`) PPIs.
 
 ```
 drakkar/db.py              connection + query helpers (loads .env via python-dotenv)
-drakkar/mappings.py        reading mapping1/mapping2 occurrences
+drakkar/mappings.py        reading mapping1/mapping2 occurrences, placed on their source
 drakkar/binary_methods.py  shared binary detection-method definition (PSI-MI ids)
 drakkar/runs.py            append-only run log helper
 scripts/                   one dataset script per file
@@ -47,6 +47,47 @@ Docstrings describe the dataset, never a specific run: run dates, database name 
 counts go to the committed `RUNS.md` via `drakkar.runs.log_run`.
 
 A script is finished once it has been run and **Verification** below passes.
+
+### Conventions
+
+Defaults for every dataset script; follow them without asking.
+
+- **Protein identity.** A human protein is its accession alone; a viral protein is its
+  `(accession, start, stop)` triple. Group and count on those only. Names are labels:
+  never part of a key; aggregate them with `string_agg(DISTINCT name, ', ')` when
+  grouping.
+- **Taxon input.** A virus is given as an NCBI taxon id and covers every taxon below
+  it (nested set, see **Taxonomy**). It selects the viral side it is asked for and
+  nothing else: when the request says "all sources" or "any", every other step spans
+  both interactomes and every virus.
+- **Peptides.** 5–20 aa inclusive (see **Peptides**), identity below 100 kept, read
+  through `drakkar.mappings.source_occurrences`. A peptide binding a protein is a
+  mapping on that protein's *partner* side of the description, never on the protein
+  itself; in `hh` the protein may be on either side.
+- **Peptide columns** depend on the script: the distinct sequences alone, or with the
+  source, the target, or both, optionally with coordinates on the source. A source is
+  its `(accession, start, stop)` triple, coordinates are on the source sequence, and
+  a peptide on the canonical sequence is reported there even if curated on an isoform
+  (`source_occurrences` does all this). If the request doesn't make the columns
+  clear, ask.
+- **Output files.** Sequences go in the last columns, since they make a file
+  unreadable otherwise. File names are the dataset name with an underscore suffix
+  (`descriptions_hh.tsv`), parameterized ones named after the parameter
+  (`ebolavirus_human_targets.tsv`).
+- **CLI.** Script parameters are named options (`--ncbi-taxon-id`), not positionals.
+- **Run log.** Reruns while a script is still being developed replace its uncommitted
+  `RUNS.md` entry rather than stacking new ones.
+
+### Working with the user
+
+- Ask only about choices that change the output, phrased in terms of the data ("peptides
+  on viral proteins of any virus, or only of this taxon?"), and apply the answer
+  literally.
+- Report what the output is. Checks that turned out fine and change nothing are not
+  reported.
+- Before calling an output row odd, read how `drakkar.mappings` documents the case —
+  most are handled by design.
+- Never edit `drakkar/` modules without the user's consent.
 
 ## Writing code
 
@@ -191,19 +232,27 @@ common case).
   on the polyprotein is `start2 + occurrence.start - 1`. On the human side
   `start1 = 1`, so the two frames coincide.
 
-Read them through `drakkar.mappings.occurrences` rather than by hand: it normalizes
+Read them through `drakkar.mappings` rather than by hand. `occurrences` normalizes
 the JSON (coordinates and identities are stored as strings about a third of the time),
 flattens it to one row per occurrence, and corrects each position against the sequence
-it was curated on.
+it was curated on. `source_occurrences` wraps it for one description side: given the
+side's `proteins.sequences` and triple, it reports each occurrence on its source
+protein, with the source sequence (mature region for a mature viral protein) and
+coordinates on it; the canonical sequence wins over an isoform whenever the peptide
+occurs on both. Dataset scripts use `source_occurrences`.
+
+Odd-looking occurrences are usually documented cases, flagged by `how` — e.g. a
+curated peptide carrying an initiator Met its mature protein lacks is kept at its
+recorded position as `recorded despite mismatch`.
 
 #### Peptides
 
-By team convention a **peptide** is a mapping `sequence` of **4–20 aa inclusive** — a
-short binding region, as opposed to a domain-scale mapping. Nothing in the schema
-flags it; derive it by length:
+A **peptide** is a mapping `sequence` of **5–20 aa inclusive** — a short binding
+region, as opposed to a domain-scale mapping. Nothing in the schema flags it; derive
+it by length:
 
 ```sql
-WHERE length(e->>'sequence') BETWEEN 4 AND 20
+WHERE length(e->>'sequence') BETWEEN 5 AND 20
 ```
 
 ### Taxonomy

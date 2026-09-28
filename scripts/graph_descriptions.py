@@ -34,7 +34,7 @@ together, one row per distinct peptide of a description's protein:
   stable_id, sequence, source_type, source_accession, source_start, source_stop
 
 A peptide is a `mapping1` / `mapping2` entry whose sequence is 5-20 aa
-inclusive (a one-time exception to the 4-20 team convention). Entries are
+inclusive, the team convention. Entries are
 read through `drakkar.mappings.occurrences`, which places each one on the
 sequence it was curated on, so an entry that fits nowhere on its protein
 yields no peptide at all. The position it was placed at is *not* exported:
