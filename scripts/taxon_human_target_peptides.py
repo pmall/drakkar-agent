@@ -1,12 +1,14 @@
 """Human targets of a viral taxon, and the peptides binding them.
 
 Takes an NCBI taxon id and exports two TSV files into `data/`, named after
-the taxon's scientific name (e.g. `ebolavirus_human_targets.tsv`).
+the dataset: `--name` (default: the taxon's scientific name, e.g. `ebolavirus`)
+followed by `_targets` and `_peptides`.
 
-`<taxon>_human_targets.tsv` -- one row per human protein interacting with a
+`<name>_targets.tsv` -- one row per human protein interacting with a
 viral protein under the taxon, i.e. `accession1` of the valid `vh`
 descriptions whose `left_value2` falls in the taxon's nested-set bounds, so
-every strain below it counts:
+every strain below it counts. Optionally only interactions with enough
+evidence are kept (see below):
 
   accession, name, descriptions, interactions, viral_proteins
 
@@ -17,7 +19,18 @@ among them -- an interaction is a protein pair, and the target is one side
 of each. `viral_proteins` lists those viral proteins as
 `accession:start-stop` triples, `", "`-separated.
 
-`<taxon>_target_peptides.tsv` -- the peptides reported as binding one of
+Evidence: an interaction (human protein, viral protein) is supported by its
+descriptions; its evidence is the number of distinct publications (`pmid`)
+and of distinct detection methods (`psimi_id`) among them.
+`--min-publications` and `--min-methods` keep the interactions reaching
+either threshold -- an OR, so `--min-publications 2 --min-methods 2` is at
+least two publications or at least two methods. With only one of them, that
+one applies alone; with neither, every interaction is kept. A target with no
+kept interaction is dropped, and `descriptions`, `interactions` and
+`viral_proteins` count the kept interactions only. The peptides below are
+those of the remaining targets, from any partner, whatever its evidence.
+
+`<name>_peptides.tsv` -- the peptides reported as binding one of
 those targets, one row per distinct (peptide, target, source protein,
 position):
 
@@ -44,6 +57,7 @@ canonical sequence (see `occurrences`); the isoform is then the source, as
 Valid PPI filter applied (curated, both accessions live, current revision).
 
 Run: uv run python scripts/taxon_human_target_peptides.py --ncbi-taxon-id 186536
+     [--min-publications 2 --min-methods 2 --name ebolavirus_golden]
 """
 
 from __future__ import annotations
@@ -73,7 +87,18 @@ JOIN taxon_name n ON n.taxon_id = t.taxon_id AND n.name_class = 'scientific name
 WHERE t.ncbi_taxon_id = %(ncbi_taxon_id)s
 """
 
+# Interactions with enough evidence: {evidence} is the OR of the thresholds
+# given, or TRUE when there are none.
 TARGETS_QUERY = f"""
+WITH supported AS (
+    SELECT d.accession1, d.accession2, d.start2, d.stop2
+    FROM dataset d
+    WHERE {VALID}
+      AND d.type = 'vh'
+      AND d.left_value2 BETWEEN %(left)s AND %(right)s
+    GROUP BY d.accession1, d.accession2, d.start2, d.stop2
+    HAVING {{evidence}}
+)
 SELECT
     d.accession1 AS accession,
     string_agg(DISTINCT d.name1, ', ' ORDER BY d.name1) AS name,
@@ -83,6 +108,11 @@ SELECT
         DISTINCT d.accession2 || ':' || d.start2 || '-' || d.stop2, ', '
     ) AS viral_proteins
 FROM dataset d
+JOIN supported s
+  ON s.accession1 = d.accession1
+ AND s.accession2 = d.accession2
+ AND s.start2 = d.start2
+ AND s.stop2 = d.stop2
 WHERE {VALID}
   AND d.type = 'vh'
   AND d.left_value2 BETWEEN %(left)s AND %(right)s
@@ -173,19 +203,40 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
     )
 
 
-def main(ncbi_taxon_id: int) -> None:
+def _evidence(min_publications: int | None, min_methods: int | None) -> str:
+    """The HAVING condition on an interaction's evidence: thresholds OR-ed."""
+    conditions = []
+    if min_publications is not None:
+        conditions.append(f"count(DISTINCT d.pmid) >= {min_publications}")
+    if min_methods is not None:
+        conditions.append(f"count(DISTINCT d.psimi_id) >= {min_methods}")
+    return " OR ".join(conditions) or "TRUE"
+
+
+def _threshold(value: int | None) -> str:
+    return "none" if value is None else str(value)
+
+
+def main(
+    ncbi_taxon_id: int,
+    min_publications: int | None,
+    min_methods: int | None,
+    dataset_name: str | None,
+) -> None:
     taxon = fetch(TAXON_QUERY, {"ncbi_taxon_id": ncbi_taxon_id})
     if taxon.is_empty():
         raise SystemExit(f"no taxon with NCBI id {ncbi_taxon_id}")
     left, right, name = taxon.row(0)
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-    targets_tsv = ROOT / "data" / f"{slug}_human_targets.tsv"
-    peptides_tsv = ROOT / "data" / f"{slug}_target_peptides.tsv"
+    base = dataset_name or slug
+    targets_tsv = ROOT / "data" / f"{base}_targets.tsv"
+    peptides_tsv = ROOT / "data" / f"{base}_peptides.tsv"
     targets_tsv.parent.mkdir(parents=True, exist_ok=True)
 
-    targets = fetch(TARGETS_QUERY, {"left": left, "right": right})
+    query = TARGETS_QUERY.format(evidence=_evidence(min_publications, min_methods))
+    targets = fetch(query, {"left": left, "right": right})
     if targets.is_empty():
-        raise SystemExit(f"no valid vh description under {name} ({ncbi_taxon_id})")
+        raise SystemExit(f"no valid vh interaction under {name} ({ncbi_taxon_id})")
     targets.write_csv(targets_tsv, separator="\t")
 
     names = dict(zip(targets["accession"], targets["name"], strict=True))
@@ -198,6 +249,8 @@ def main(ncbi_taxon_id: int) -> None:
         f"{targets_tsv.relative_to(ROOT)} + {peptides_tsv.relative_to(ROOT)}",
         {
             "taxon": f"{name} (NCBI {ncbi_taxon_id})",
+            "minimum publications": _threshold(min_publications),
+            "minimum methods": _threshold(min_methods),
             "human targets": targets.height,
             "target descriptions": int(targets["descriptions"].sum()),
             "target interactions": int(targets["interactions"].sum()),
@@ -216,4 +269,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ncbi-taxon-id", type=int, required=True, help="NCBI taxon id of the virus"
     )
-    main(parser.parse_args().ncbi_taxon_id)
+    parser.add_argument(
+        "--min-publications",
+        type=int,
+        help="keep interactions supported by at least this many publications",
+    )
+    parser.add_argument(
+        "--min-methods",
+        type=int,
+        help="keep interactions supported by at least this many detection methods"
+        " (OR-ed with --min-publications)",
+    )
+    parser.add_argument(
+        "--name",
+        help="dataset name the output files are named after"
+        " (default: the taxon's scientific name)",
+    )
+    args = parser.parse_args()
+    main(
+        args.ncbi_taxon_id,
+        args.min_publications,
+        args.min_methods,
+        args.name,
+    )

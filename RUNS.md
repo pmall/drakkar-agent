@@ -157,11 +157,13 @@ Append-only log of dataset exports. Each run appends one section below via
 - viral proteins: 3,642
 - peptides: 4,593
 
-## 2026-09-28 -- scripts/taxon_human_target_peptides.py
+## 2026-09-30 -- scripts/taxon_human_target_peptides.py
 
-- output: `data/ebolavirus_human_targets.tsv + data/ebolavirus_target_peptides.tsv`
-- database: drakkar_2026_09
+- output: `data/ebolavirus_targets.tsv + data/ebolavirus_peptides.tsv`
+- database: drakkar-2026-09-09
 - taxon: Ebolavirus (NCBI 186536)
+- minimum publications: none
+- minimum methods: none
 - human targets: 1,252
 - target descriptions: 1,896
 - target interactions: 1,685
@@ -169,3 +171,18 @@ Append-only log of dataset exports. Each run appends one section below via
 - distinct peptide sequences: 1,019
 - peptides from human sources: 417
 - peptides from viral sources: 1,132
+
+## 2026-09-30 -- scripts/taxon_human_target_peptides.py
+
+- output: `data/ebolavirus_golden_targets.tsv + data/ebolavirus_golden_peptides.tsv`
+- database: drakkar-2026-09-09
+- taxon: Ebolavirus (NCBI 186536)
+- minimum publications: 2
+- minimum methods: 2
+- human targets: 128
+- target descriptions: 353
+- target interactions: 142
+- peptides: 337
+- distinct peptide sequences: 289
+- peptides from human sources: 43
+- peptides from viral sources: 294
