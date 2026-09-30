@@ -59,14 +59,14 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-10 -- scripts/vh_interactions_with_sequences.py
 
 - output: `data/vh_interactions_with_sequences.tsv`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - interactions: 103,758
 - binary interactions: 15,656
 
 ## 2026-09-15 -- scripts/viral_peptide_cter_flag.py
 
 - output: `data/viral_peptide_cter_flag.tsv`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - valid vh descriptions scanned: 117,431
 - peptide occurrences resolved: 2,866
 - distinct peptide sequences: 1,359
@@ -76,7 +76,7 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-15 -- scripts/mapping_corrections.py
 
 - output: `data/mapping_corrections.tsv`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - valid descriptions with mappings: 18,825
 - mapping entries audited: 25,925
 - occurrences audited: 44,487
@@ -92,14 +92,14 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-22 -- scripts/graph_descriptions.py
 
 - output: `data/graph-2026-09-09/descriptions.tsv, data/graph-2026-09-09/publications.tsv, data/graph-2026-09-09/peptides.tsv`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - publications: 14,929
 - peptides: 4,593
 
 ## 2026-09-22 -- scripts/viral_peptide_mature_fasta.py
 
 - output: `data/viral_mature_with_peptides.fasta`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - valid vh descriptions with a mapping: 8,513
 - peptide occurrences: 3,003
 - records: 1,609
@@ -113,7 +113,7 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-22 -- scripts/viral_peptide_summary.py
 
 - output: `data/viral_peptide_summary.tsv`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - valid vh descriptions with a mapping: 8,513
 - unique viral peptide sequences: 1,430
 - unique source viral (mature) proteins: 764
@@ -123,7 +123,7 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-22 -- scripts/viral_protein_human_degree_binary.py
 
 - output: `data/viral_protein_human_degree_binary.tsv + reports/viral_protein_human_degree_binary.md`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - binary-supported pairs: 13,876
 - viral proteins: 1,051
 - degree: mean 13.2, median 2, max 430, p90 = 23, p99 = 230
@@ -132,7 +132,7 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-22 -- scripts/dataset_integrity.py
 
 - output: `data/dataset_integrity.tsv + reports/dataset_integrity.md`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - valid descriptions audited: 403,121
 - of them carrying a mapping: 18,825
 - mapping entries audited: 25,925
@@ -153,7 +153,7 @@ Append-only log of dataset exports. Each run appends one section below via
 ## 2026-09-28 -- scripts/graph_descriptions.py
 
 - output: `data/graph/descriptions_hh.tsv, data/graph/descriptions_vh.tsv, data/graph/viral_proteins.tsv, data/graph/peptides.tsv`
-- database: drakkar_2026_09
+- database: drakkar_2026_09_09
 - viral proteins: 3,642
 - peptides: 4,593
 
