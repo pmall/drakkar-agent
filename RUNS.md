@@ -186,3 +186,15 @@ Append-only log of dataset exports. Each run appends one section below via
 - distinct peptide sequences: 289
 - peptides from human sources: 43
 - peptides from viral sources: 294
+
+## 2026-10-01 -- scripts/human_target_peptides.py
+
+- output: `data/ferroptosis_peptides.tsv`
+- database: drakkar_2026_09_09
+- accessions read: 157
+- targets in the database: 157
+- targets with a peptide: 33
+- peptides: 251
+- distinct peptide sequences: 220
+- peptides from human sources: 109
+- peptides from viral sources: 142
