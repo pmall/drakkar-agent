@@ -46,6 +46,10 @@ and joins back to the descriptions files. `source_type` is that protein's
 row. The file covers both interactomes.
 
 Valid PPI filter applied (curated, both accessions live, current revision).
+Curation sometimes enters the same *(publication x detection method x protein
+pair)* under several `stable_id`s, an `hh` pair in either order; only the
+earliest one (`created_at`, then `stable_id`) is kept, in the descriptions and
+in the peptides alike.
 
 Run: uv run python scripts/graph_descriptions.py --output graph
 """
@@ -65,6 +69,22 @@ from drakkar.stats import show
 
 type Interactome = Literal["hh", "vh"]
 
+# The two protein triples of a description, ordered: an `hh` pair may be entered
+# either way round, so (A, B) and (B, A) are one pair.
+PAIR = """
+        LEAST(ROW(accession1, start1, stop1), ROW(accession2, start2, stop2)),
+        GREATEST(ROW(accession1, start1, stop1), ROW(accession2, start2, stop2))"""
+
+# The valid descriptions, one per (pmid, method, protein pair): the first
+# curated, `stable_id` breaking a tie on `created_at`.
+FIRST_CURATED = f"""(
+    SELECT DISTINCT ON (type, pmid, psimi_id,{PAIR}) *
+    FROM dataset d
+    WHERE {valid("d")}
+    ORDER BY type, pmid, psimi_id,{PAIR},
+        created_at, stable_id
+)"""
+
 DESCRIPTIONS_QUERY = f"""
 SELECT
     stable_id,
@@ -80,9 +100,8 @@ SELECT
     stop2,
     name2,
     ncbi_taxon_id2
-FROM dataset d
-WHERE {valid("d")}
-  AND d.type = '{{interactome}}'
+FROM {FIRST_CURATED} d
+WHERE d.type = '{{interactome}}'
 ORDER BY pmid, accession1, accession2, start2, stop2, psimi_id, stable_id
 """
 
@@ -111,9 +130,8 @@ SELECT
     stable_id,
     protein1_id, type1, accession1, start1, stop1, mapping1,
     protein2_id, type2, accession2, start2, stop2, mapping2
-FROM dataset d
-WHERE {valid("d")}
-  AND (json_array_length(mapping1) > 0 OR json_array_length(mapping2) > 0)
+FROM {FIRST_CURATED} d
+WHERE (json_array_length(mapping1) > 0 OR json_array_length(mapping2) > 0)
 ORDER BY stable_id
 """
 
