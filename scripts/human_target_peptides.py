@@ -5,7 +5,8 @@ from any command producing them -- and exports one row per distinct
 (peptide, target, source protein, position):
 
   sequence, target_accession, target_name,
-  source_type, source_accession, source_start, source_stop,
+  source_type, source_ncbi_taxon_id, source_taxon, source_name,
+  source_accession, source_start, source_stop,
   peptide_start, peptide_stop, source_sequence
 
 A peptide is a mapping entry of 5-20 aa inclusive located on the target's
@@ -24,9 +25,15 @@ canonical sequence (see `occurrences`); the isoform is then the source, as
 `peptide_start` / `peptide_stop` are 1-based on `source_sequence`.
 `source_type` is `h` or `v`.
 
-`target_name` comes from the database, never from the input: the target's
-distinct `name1` values, `", "`-separated should there be several, or its
-`hh` `name2` values for a protein curated only as side 2.
+`source_ncbi_taxon_id` and `source_taxon` are the source's taxon as curated,
+strain-level for a virus and 9606 / Homo sapiens for a human protein.
+`source_name` is the name the curation team gave a viral protein (`name2`,
+stable per mature region) and the UniProt gene name of a human one.
+
+Human names -- `target_name`, and `source_name` of a human source -- come
+from the database, never from the input: the protein's distinct `name1`
+values, `", "`-separated should there be several, or its `hh` `name2` values
+for a protein curated only as side 2.
 
 Input: the first whitespace-separated field of each line, kept when it reads
 as a UniProt accession, so a header row, blank lines and trailing columns
@@ -65,6 +72,9 @@ SCHEMA: dict[str, pl.DataType] = {
     "target_accession": pl.String(),
     "target_name": pl.String(),
     "source_type": pl.String(),
+    "source_ncbi_taxon_id": pl.Int64(),
+    "source_taxon": pl.String(),
+    "source_name": pl.String(),
     "source_accession": pl.String(),
     "source_start": pl.Int64(),
     "source_stop": pl.Int64(),
@@ -80,18 +90,18 @@ VALID = """
     AND d.deleted_at IS NULL
 """
 
-# A target's name, from the side it is curated on: `name1` is the UniProt
-# gene name, `name2` the curator-chosen one, used only for a human protein
-# that never appears as side 1.
+# A human protein's name, from the side it is curated on: `name1` is the
+# UniProt gene name, `name2` the curator-chosen one, used only for a human
+# protein that never appears as side 1.
 NAMES_QUERY = f"""
 WITH named AS (
     SELECT 1 AS side, d.accession1 AS accession, d.name1 AS name
     FROM dataset d
-    WHERE {VALID} AND d.accession1 = ANY(%(targets)s)
+    WHERE {VALID} AND d.accession1 = ANY(%(accessions)s)
     UNION
     SELECT 2 AS side, d.accession2 AS accession, d.name2 AS name
     FROM dataset d
-    WHERE {VALID} AND d.type = 'hh' AND d.accession2 = ANY(%(targets)s)
+    WHERE {VALID} AND d.type = 'hh' AND d.accession2 = ANY(%(accessions)s)
 )
 SELECT accession, string_agg(DISTINCT name, ', ' ORDER BY name) AS name
 FROM named
@@ -104,8 +114,10 @@ ORDER BY accession, side
 # out in peptides().
 MAPPINGS_QUERY = f"""
 SELECT
-    protein1_id, type1, accession1, start1, stop1, mapping1,
-    protein2_id, type2, accession2, start2, stop2, mapping2
+    protein1_id, type1, accession1, start1, stop1,
+    name1, ncbi_taxon_id1, taxon1, mapping1,
+    protein2_id, type2, accession2, start2, stop2,
+    name2, ncbi_taxon_id2, taxon2, mapping2
 FROM dataset d
 WHERE {VALID}
   AND (json_array_length(d.mapping1) > 0 OR json_array_length(d.mapping2) > 0)
@@ -135,10 +147,10 @@ def accessions(lines: Iterable[str]) -> tuple[list[str], int]:
     return list(dict.fromkeys(kept)), dropped
 
 
-def names(targets: list[str]) -> dict[str, str]:
-    """The name of every target the database holds a valid description for."""
+def names(humans: list[str]) -> dict[str, str]:
+    """The name of every human protein the database holds a valid description for."""
     with connect() as conn, conn.cursor() as cur:
-        cur.execute(NAMES_QUERY.encode(), {"targets": targets})
+        cur.execute(NAMES_QUERY.encode(), {"accessions": humans})
         rows = cur.fetchall()
     # Ordered by side, so side 1 wins where a protein is curated on both.
     found: dict[str, str] = {}
@@ -168,18 +180,25 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(MAPPINGS_QUERY.encode(), {"targets": list(targets)})
         rows = cur.fetchall()
-        ids = sorted({row[0] for row in rows} | {row[6] for row in rows})
+        ids = sorted({row[0] for row in rows} | {row[9] for row in rows})
         cur.execute("SELECT id, sequences FROM proteins WHERE id = ANY(%s)", (ids,))
         sequences = dict(cur.fetchall())
 
+    # A human source carries its UniProt gene name rather than the name the
+    # curators gave it as side 2, so its name is resolved like a target's.
+    # Side 1 is always human, side 2 only in `hh`.
+    humans = {row[2] for row in rows} | {row[11] for row in rows if row[10] == "h"}
+    human_names = names(sorted(humans))
+
     records: list[dict[str, str | int]] = []
     for row in rows:
-        side1, side2 = row[:6], row[6:]
+        side1, side2 = row[:9], row[9:]
         for target, source in ((side1, side2), (side2, side1)):
             target_accession = target[2]
             if target_accession not in targets:
                 continue
-            protein_id, type_, accession, start, stop, mapping = source
+            protein_id, type_, accession, start, stop = source[:5]
+            name, ncbi_taxon_id, taxon, mapping = source[5:]
             protein = sequences[protein_id]
             sources = _sources(protein, accession, start, stop)
             for occurrence in occurrences(mapping, sources, PEPTIDE_MIN, PEPTIDE_MAX):
@@ -193,6 +212,11 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
                         "target_accession": target_accession,
                         "target_name": targets[target_accession],
                         "source_type": type_,
+                        "source_ncbi_taxon_id": ncbi_taxon_id,
+                        "source_taxon": taxon,
+                        "source_name": (
+                            human_names[accession] if type_ == "h" else name
+                        ),
                         "source_accession": occurrence.accession,
                         "source_start": 1 if on_isoform else start,
                         "source_stop": len(source_sequence) if on_isoform else stop,
@@ -206,11 +230,17 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
     return (
         pl.DataFrame(records, schema=SCHEMA)
         .unique()
+        # Grouped by target, then by source: `h` sorts before `v`, so a
+        # target's human sources come first, and each taxon's sources are
+        # together. The remaining keys only make the order total.
         .sort(
             "target_accession",
-            "sequence",
+            "source_type",
+            "source_ncbi_taxon_id",
+            "source_name",
             "source_accession",
             "source_start",
+            "sequence",
             "peptide_start",
         )
     )
