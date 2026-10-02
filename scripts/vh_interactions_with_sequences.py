@@ -36,16 +36,9 @@ Valid PPI filter applied, vh only.
 """
 
 from drakkar.binary_methods import BINARY_PSIMI_IDS
-from drakkar.db import export
-from drakkar.runs import log_run
-
-VALID = """
-    d.state = 'curated'
-    AND d.is_obsolete1 IS FALSE
-    AND d.is_obsolete2 IS FALSE
-    AND d.deleted_at IS NULL
-    AND d.type = 'vh'
-"""
+from drakkar.db import dataset_path, export
+from drakkar.descriptions import valid
+from drakkar.stats import show
 
 QUERY = f"""
 SELECT
@@ -100,13 +93,13 @@ FROM (
     FROM dataset d
     JOIN proteins p1 ON p1.id = d.protein1_id
     JOIN proteins p2 ON p2.id = d.protein2_id
-    WHERE {VALID}
+    WHERE {valid("d")} AND d.type = 'vh'
     GROUP BY d.accession1, d.accession2, d.start2, d.stop2
 ) g
 ORDER BY g.accession1, g.accession2, g.start2, g.stop2
 """
 
-TSV = "data/vh_interactions_with_sequences.tsv"
+TSV = dataset_path("vh_interactions_with_sequences.tsv")
 
 
 def main() -> None:
@@ -115,9 +108,7 @@ def main() -> None:
     print(f"interactions        : {df.height:,}")
     print(f"binary interactions : {n_bin:,}")
     print(df.head(5))
-    log_run(
-        "scripts/vh_interactions_with_sequences.py",
-        TSV,
+    show(
         {"interactions": df.height, "binary interactions": n_bin},
     )
 

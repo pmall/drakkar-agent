@@ -18,12 +18,36 @@ ROOT = Path(__file__).resolve().parents[1]
 type Params = Sequence[object] | Mapping[str, object]
 
 
+def database() -> str:
+    """The name of the source database: the version every dataset is built from."""
+    load_dotenv(ROOT / ".env")
+    return os.environ["POSTGRES_DB"]
+
+
+def dataset_path(name: str | Path) -> Path:
+    """Where a dataset file goes: `data/<database>/<name>`, its folder created.
+
+    A dataset is a function of its source database, so each database version
+    has its own folder and versions never overwrite one another.
+    """
+    path = ROOT / "data" / database() / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def report_path(name: str | Path) -> Path:
+    """Where a report goes: `reports/<database>/<name>`, its folder created."""
+    path = ROOT / "reports" / database() / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def dsn() -> str:
     load_dotenv(ROOT / ".env")
     return (
         f"host={os.environ['POSTGRES_HOST']} "
         f"port={os.environ['POSTGRES_PORT']} "
-        f"dbname={os.environ['POSTGRES_DB']} "
+        f"dbname={database()} "
         f"user={os.environ['POSTGRES_USER']} "
         f"password={os.environ['POSTGRES_PASSWORD']}"
     )

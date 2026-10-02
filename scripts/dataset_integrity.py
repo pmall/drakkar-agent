@@ -58,7 +58,7 @@ One row per problem. Columns:
     accession, name,
     start, stop              -- protein as curated (mature protein on the
                                 viral side)
-    is_peptide               -- mapping sequence is 4-20 aa inclusive
+    is_peptide               -- mapping sequence is 5-20 aa inclusive
     sequence                 -- mapping sequence
     isoform                  -- isoform accession concerned
     recorded                 -- what the curator recorded
@@ -69,7 +69,7 @@ deleted_at IS NULL. The descriptions absent from the view are read from
 `descriptions`/`associations` instead, where that filter cannot apply.
 
 Run: uv run python scripts/dataset_integrity.py
-Writes data/dataset_integrity.tsv and regenerates the markdown report.
+Writes data/<database>/dataset_integrity.tsv and regenerates the markdown report.
 """
 
 import json
@@ -82,8 +82,10 @@ from typing import Literal, NamedTuple
 
 import polars as pl
 
-from drakkar.db import connect
-from drakkar.runs import log_run
+from drakkar.db import connect, dataset_path, report_path
+from drakkar.descriptions import valid
+from drakkar.peptides import PEPTIDE_MAX, PEPTIDE_MIN
+from drakkar.stats import show
 
 type Check = Literal["description", "protein", "mapping"]
 
@@ -166,15 +168,10 @@ EXPLANATIONS: dict[str, str] = {
     ),
 }
 
-TSV = "data/dataset_integrity.tsv"
-MD = "reports/dataset_integrity.md"
+TSV = dataset_path("dataset_integrity.tsv")
+MD = report_path("dataset_integrity.md")
 
-VALID = """
-    state = 'curated'
-    AND is_obsolete1 IS FALSE
-    AND is_obsolete2 IS FALSE
-    AND deleted_at IS NULL
-"""
+VALID = valid()
 
 
 class Finding(NamedTuple):
@@ -585,7 +582,8 @@ def audit(
                 name=name,
                 start=start,
                 stop=stop,
-                is_peptide=isinstance(seq, str) and 4 <= len(seq) <= 20,
+                is_peptide=isinstance(seq, str)
+                and PEPTIDE_MIN <= len(seq) <= PEPTIDE_MAX,
                 sequence=seq if isinstance(seq, str) else json.dumps(seq),
                 isoform=isoform,
                 recorded=recorded,
@@ -934,9 +932,7 @@ print(
 print(df.group_by("check", "problem").agg(pl.len()).sort("check", "problem"))
 print(f"-> {TSV} + {MD}")
 
-log_run(
-    "scripts/dataset_integrity.py",
-    f"{TSV} + {MD}",
+show(
     {
         "valid descriptions audited": stats["valid descriptions"],
         "of them carrying a mapping": stats["descriptions with a mapping"],

@@ -1,6 +1,6 @@
 """All valid PPI descriptions with their viral proteins and peptides.
 
-Exported as four TSV files into the folder given on the command line, a
+Exported as four TSV files into a folder of `data/<database>/`, a
 graph of the curated interactome: descriptions are the edges, viral proteins
 and peptides hang off them by protein triple / `stable_id`.
 
@@ -47,7 +47,7 @@ row. The file covers both interactomes.
 
 Valid PPI filter applied (curated, both accessions live, current revision).
 
-Run: uv run python scripts/graph_descriptions.py data/graph
+Run: uv run python scripts/graph_descriptions.py --output graph
 """
 
 from __future__ import annotations
@@ -58,20 +58,12 @@ from typing import Literal
 
 import polars as pl
 
-from drakkar.db import connect, fetch, stream
-from drakkar.mappings import occurrences
-from drakkar.runs import log_run
+from drakkar.db import connect, dataset_path, fetch, stream
+from drakkar.descriptions import valid
+from drakkar.peptides import load_sequences, peptide_occurrences, sources
+from drakkar.stats import show
 
 type Interactome = Literal["hh", "vh"]
-
-PEPTIDE_MIN, PEPTIDE_MAX = 5, 20
-
-VALID = """
-    d.state = 'curated'
-    AND d.is_obsolete1 IS FALSE
-    AND d.is_obsolete2 IS FALSE
-    AND d.deleted_at IS NULL
-"""
 
 DESCRIPTIONS_QUERY = f"""
 SELECT
@@ -89,7 +81,7 @@ SELECT
     name2,
     ncbi_taxon_id2
 FROM dataset d
-WHERE {VALID}
+WHERE {valid("d")}
   AND d.type = '{{interactome}}'
 ORDER BY pmid, accession1, accession2, start2, stop2, psimi_id, stable_id
 """
@@ -107,7 +99,7 @@ SELECT DISTINCT
         AS sequence
 FROM dataset d
 JOIN proteins p ON p.id = d.protein2_id
-WHERE {VALID}
+WHERE {valid("d")}
   AND d.type = 'vh'
 ORDER BY accession, start, stop
 """
@@ -120,7 +112,7 @@ SELECT
     protein1_id, type1, accession1, start1, stop1, mapping1,
     protein2_id, type2, accession2, start2, stop2, mapping2
 FROM dataset d
-WHERE {VALID}
+WHERE {valid("d")}
   AND (json_array_length(mapping1) > 0 OR json_array_length(mapping2) > 0)
 ORDER BY stable_id
 """
@@ -132,37 +124,20 @@ def descriptions_query(interactome: Interactome) -> str:
     return DESCRIPTIONS_QUERY.format(interactome=interactome)
 
 
-def _sources(
-    protein: dict[str, str], accession: str, start: int, stop: int
-) -> dict[str, str]:
-    """The sequences a mapping on this protein can have been curated on.
-
-    A protein curated full length -- every human protein, and a viral protein
-    that is not a mature one -- brings its canonical sequence and its
-    isoforms, since a peptide may have been located on an isoform. A mature
-    viral protein is a region of a polyprotein and has no isoforms of its
-    own, so its mature region is the only sequence to match against.
-    """
-    canonical = protein[accession]
-    if start == 1 and stop == len(canonical):
-        return protein
-    return {accession: canonical[start - 1 : stop]}
-
-
 def peptides() -> pl.DataFrame:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(MAPPINGS_QUERY)
         rows = cur.fetchall()
-        ids = sorted({row[1] for row in rows} | {row[7] for row in rows})
-        cur.execute("SELECT id, sequences FROM proteins WHERE id = ANY(%s)", (ids,))
-        sequences = dict(cur.fetchall())
+        sequences = load_sequences(
+            cur, {row[1] for row in rows} | {row[7] for row in rows}
+        )
 
     records = []
     for stable_id, *columns in rows:
         side1, side2 = columns[:6], columns[6:]
         for protein_id, type_, accession, start, stop, mapping in (side1, side2):
-            sources = _sources(sequences[protein_id], accession, start, stop)
-            for occurrence in occurrences(mapping, sources, PEPTIDE_MIN, PEPTIDE_MAX):
+            on = sources(sequences[protein_id], accession, start, stop)
+            for occurrence in peptide_occurrences(mapping, on):
                 records.append(
                     {
                         "stable_id": stable_id,
@@ -189,8 +164,9 @@ def viral_proteins() -> pl.DataFrame:
     return proteins
 
 
-def main(out: Path) -> None:
-    out.mkdir(parents=True, exist_ok=True)
+def main(folder: Path) -> None:
+    out = dataset_path(folder)
+    out.mkdir(exist_ok=True)
     hh_descriptions_tsv = out / "descriptions_hh.tsv"
     vh_descriptions_tsv = out / "descriptions_vh.tsv"
     viral_proteins_tsv = out / "viral_proteins.tsv"
@@ -206,15 +182,17 @@ def main(out: Path) -> None:
     peps = peptides()
     peps.write_csv(peptides_tsv, separator="\t")
 
-    log_run(
-        "scripts/graph_descriptions.py",
-        f"{hh_descriptions_tsv}, {vh_descriptions_tsv}, "
-        f"{viral_proteins_tsv}, {peptides_tsv}",
+    show(
         {"viral proteins": viral.height, "peptides": peps.height},
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export the drakkar PPI graph.")
-    parser.add_argument("out", type=Path, help="folder the four TSV files go to")
-    main(parser.parse_args().out)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="folder the four TSV files go to, in data/<database>/",
+    )
+    main(parser.parse_args().output)

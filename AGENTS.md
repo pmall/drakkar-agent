@@ -7,12 +7,14 @@ producing datasets. Curated human–human (`hh`) and human–viral (`vh`) PPIs.
 
 ```
 drakkar/db.py              connection + query helpers (loads .env via python-dotenv)
+drakkar/descriptions.py    the valid-description filter, `valid()`
 drakkar/mappings.py        reading mapping1/mapping2 occurrences
+drakkar/peptides.py        peptide length bounds (5-20) and the sequences a peptide is read on
+drakkar/taxonomy.py        rolling strain-level taxa up to species/genus/family
 drakkar/binary_methods.py  shared binary detection-method definition (PSI-MI ids)
-drakkar/runs.py            append-only run log helper
+drakkar/stats.py           prints a dataset's counts, for its log entry
 scripts/                   one dataset script per file
-data/                      exports (gitignored)
-RUNS.md                    committed log of dataset runs (date + counts per run)
+data/<database>/           exports, one folder per source database (gitignored)
 ```
 
 Credentials live in `.env` (gitignored; see `.env.example`). Never print the password.
@@ -20,11 +22,11 @@ Credentials live in `.env` (gitignored; see `.env.example`). Never print the pas
 `drakkar` is installed into the venv as a package, so scripts run from anywhere:
 
 ```python
-from drakkar.db import export, fetch, stream
+from drakkar.db import dataset_path, export, fetch, stream
 
 df = fetch("select ... from dataset where ...")  # -> polars DataFrame
-export("select ...", "data/my_dataset.tsv")  # .csv / .tsv / .parquet
-stream("select ...", "data/big_dataset.tsv")  # COPY, never held in memory
+export("select ...", dataset_path("my_dataset.tsv"))  # .csv / .tsv / .parquet
+stream("select ...", dataset_path("big_dataset.tsv"))  # COPY, never held in memory
 ```
 
 ```bash
@@ -35,15 +37,51 @@ uv run python scripts/my_dataset.py
 
 ## Datasets
 
-One script per dataset, **all exports to `data/`**; `scripts/example_dataset.py` is a
-working template.
+**Every export goes to `data/<database>/`**, the database being the one in `.env`
+(`drakkar.db.dataset_path` builds the path; `report_path` does the same under
+`reports/`). A dataset is a function of its source database, so each database
+version has its own folder and versions never overwrite each other; the same command
+on the same database gives the same file. Check **Generic scripts** below before writing a
+script; `scripts/example_dataset.py` is a template for the rare dataset none of them
+covers.
 
 `data/` is gitignored, so the script is the only record of how its dataset was built.
-Treat `scripts/` as an append-only provenance log. Nothing imports them, so they are
-never edited to keep them running — a new dataset is a new script.
+A one-off script is an append-only provenance record: nothing imports it, so it is
+never edited to keep it running. The generic scripts are the exception — they are
+maintained, on top of the shared `drakkar/` modules, so that one script serves every
+dataset of its kind.
+
+### Generic scripts
+
+Parameterized scripts that cover the common requests. Use one, with its options,
+rather than writing a new script; run them from the repo root with `uv run python`.
+Each prints its counts. A table that is a few manipulations of a generic
+script's output (a flag, a count per group, a filter, a join) is made from that
+output ad hoc, in a polars one-liner, never as a new script.
+
+| Script | Use it for | Input → output |
+|---|---|---|
+| `taxon_human_targets.py` | the human proteins a virus interacts with | `--ncbi-taxon-id` (covers every strain below it), `--output`, optional `--min-publications` / `--min-methods` (OR-ed) → `accession, name, descriptions, interactions, viral_proteins` |
+| `human_target_peptides.py` | the peptides binding a list of human proteins | accessions on stdin (first field of each line), `--output` → one row per peptide, target, source protein and position, with the source and its sequence |
+| `viral_protein_degree.py` | how many human interactors each viral protein has, strains collapsed to species | `--output`, optional `--only-binary`, `--min-publications` → `virus, name2, n_human` |
+| `vh_interactions_with_sequences.py` | every `vh` interaction with sequences, pmids, methods and a binary flag | none → `vh_interactions_with_sequences.tsv` |
+| `graph_descriptions.py` | the whole curated interactome: descriptions, viral proteins, peptides | `--output` folder → four TSVs |
+| `dataset_integrity.py` | auditing malformed curated descriptions | none → `dataset_integrity.tsv` and a report |
+
+Recipes:
+
+- **Peptides of a virus**: `taxon_human_targets.py`, then its accession column into
+  `human_target_peptides.py`. Peptides *on* viral proteins are the rows with
+  `source_type = v`; the viral peptides of every virus come from running the
+  targets script on taxon 10239 (Viruses).
+- **Peptides of a gene list**: its accessions straight into `human_target_peptides.py`.
+- **Peptide on a C-terminus**: `peptide_stop == len(source_sequence)`.
+- **Per-sequence counts** (sources, targets): group the peptides output by `sequence`.
+- **Viral proteins per virus**: count the rows of the degree output per `virus`.
 
 Docstrings describe the dataset, never a specific run: run dates, database name and
-counts go to the committed `RUNS.md` via `drakkar.runs.log_run`.
+counts do not go there. A script prints its counts (`drakkar.stats.show`) and logs
+nothing; the dataset's entry is written by the agent, see **Dataset log**.
 
 A script is finished once it has been run and **Verification** below passes.
 
@@ -73,8 +111,25 @@ Defaults for every dataset script; follow them without asking.
   (`descriptions_hh.tsv`), parameterized ones named after the parameter
   (`ebolavirus_human_targets.tsv`).
 - **CLI.** Script parameters are named options (`--ncbi-taxon-id`), not positionals.
-- **Run log.** Reruns while a script is still being developed replace its uncommitted
-  `RUNS.md` entry rather than stacking new ones.
+  `--output` is a file name (or folder) inside `data/<database>/`, never a path.
+
+### Dataset log
+
+Each `data/<database>/` folder holds one `DATASETS.md`, uncommitted like the data
+beside it, that explains how every dataset of that database was made. A script is only
+part of that: a dataset may come from several scripts piped together (the accessions
+of one fed to another, a list read from a file), from options that make the file's
+name no clue to its content, or from manipulations of a script's output. Scripts log
+nothing, so the agent writes the entry when a dataset is delivered, headed
+`## <file or folder> -- <date>`:
+
+- what the dataset is, in terms of the data;
+- the exact commands, in order, with their inputs and any ad hoc step after;
+- the counts the scripts printed.
+
+The same data re-laid-out (columns, sort order) keeps its entry; a change in the
+counts is a new entry. A dataset file with no entry is unexplained: add the entry or
+delete the file.
 
 ### Working with the user
 
@@ -86,7 +141,7 @@ Defaults for every dataset script; follow them without asking.
 - Before calling an output row odd, read how `drakkar.mappings` documents the case —
   most are handled by design.
 - Never edit `drakkar/` modules without the user's consent.
-- **Never run `git commit`, and never amend one.** Finished work is left as changes in
+- **Never run `git commit`.** Finished work is left as changes in
   the working tree; the user commits, and writes the message. Nothing in this file is
   permission to commit.
 - Commit messages carry no co-authorship or attribution line.

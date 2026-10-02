@@ -30,7 +30,7 @@ the peptides binding these targets.
 Valid PPI filter applied (curated, both accessions live, current revision).
 
 Run: uv run python scripts/taxon_human_targets.py --ncbi-taxon-id 186536
-     --output data/ebolavirus_targets.tsv [--min-publications 2 --min-methods 2]
+     --output ebolavirus_targets.tsv [--min-publications 2 --min-methods 2]
 """
 
 from __future__ import annotations
@@ -38,15 +38,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from drakkar.db import fetch
-from drakkar.runs import log_run
-
-VALID = """
-    d.state = 'curated'
-    AND d.is_obsolete1 IS FALSE
-    AND d.is_obsolete2 IS FALSE
-    AND d.deleted_at IS NULL
-"""
+from drakkar.db import dataset_path, fetch
+from drakkar.descriptions import valid
+from drakkar.stats import show
 
 TAXON_QUERY = """
 SELECT t.left_value, t.right_value, n.name
@@ -61,7 +55,7 @@ TARGETS_QUERY = f"""
 WITH supported AS (
     SELECT d.accession1, d.accession2, d.start2, d.stop2
     FROM dataset d
-    WHERE {VALID}
+    WHERE {valid("d")}
       AND d.type = 'vh'
       AND d.left_value2 BETWEEN %(left)s AND %(right)s
     GROUP BY d.accession1, d.accession2, d.start2, d.stop2
@@ -81,7 +75,7 @@ JOIN supported s
  AND s.accession2 = d.accession2
  AND s.start2 = d.start2
  AND s.stop2 = d.stop2
-WHERE {VALID}
+WHERE {valid("d")}
   AND d.type = 'vh'
   AND d.left_value2 BETWEEN %(left)s AND %(right)s
 GROUP BY d.accession1
@@ -107,7 +101,7 @@ def main(
     ncbi_taxon_id: int,
     min_publications: int | None,
     min_methods: int | None,
-    output: Path,
+    filename: Path,
 ) -> None:
     taxon = fetch(TAXON_QUERY, {"ncbi_taxon_id": ncbi_taxon_id})
     if taxon.is_empty():
@@ -119,12 +113,9 @@ def main(
     if targets.is_empty():
         raise SystemExit(f"no valid vh interaction under {name} ({ncbi_taxon_id})")
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    targets.write_csv(output, separator="\t")
+    targets.write_csv(dataset_path(filename), separator="\t")
 
-    log_run(
-        "scripts/taxon_human_targets.py",
-        str(output),
+    show(
         {
             "taxon": f"{name} (NCBI {ncbi_taxon_id})",
             "minimum publications": _threshold(min_publications),
@@ -144,7 +135,10 @@ if __name__ == "__main__":
         "--ncbi-taxon-id", type=int, required=True, help="NCBI taxon id of the virus"
     )
     parser.add_argument(
-        "--output", type=Path, required=True, help="TSV file the targets go to"
+        "--output",
+        type=Path,
+        required=True,
+        help="TSV file name the targets go to, in data/<database>/",
     )
     parser.add_argument(
         "--min-publications",

@@ -43,7 +43,7 @@ deduplicated, and one with no valid description yields no row.
 Valid PPI filter applied (curated, both accessions live, current revision).
 
 Run: cut -f3 data/HH-Ferroptosis_UniProt.tsv | uv run python
-     scripts/human_target_peptides.py --output data/ferroptosis_peptides.tsv
+     scripts/human_target_peptides.py --output ferroptosis_peptides.tsv
 """
 
 from __future__ import annotations
@@ -56,11 +56,10 @@ from pathlib import Path
 
 import polars as pl
 
-from drakkar.db import connect
-from drakkar.mappings import occurrences
-from drakkar.runs import log_run
-
-PEPTIDE_MIN, PEPTIDE_MAX = 5, 20
+from drakkar.db import connect, dataset_path
+from drakkar.descriptions import valid
+from drakkar.peptides import load_sequences, peptide_occurrences, sources
+from drakkar.stats import show
 
 ACCESSION = re.compile(
     r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}"
@@ -83,13 +82,6 @@ SCHEMA: dict[str, pl.DataType] = {
     "source_sequence": pl.String(),
 }
 
-VALID = """
-    d.state = 'curated'
-    AND d.is_obsolete1 IS FALSE
-    AND d.is_obsolete2 IS FALSE
-    AND d.deleted_at IS NULL
-"""
-
 # A human protein's name, from the side it is curated on: `name1` is the
 # UniProt gene name, `name2` the curator-chosen one, used only for a human
 # protein that never appears as side 1.
@@ -97,11 +89,11 @@ NAMES_QUERY = f"""
 WITH named AS (
     SELECT 1 AS side, d.accession1 AS accession, d.name1 AS name
     FROM dataset d
-    WHERE {VALID} AND d.accession1 = ANY(%(accessions)s)
+    WHERE {valid("d")} AND d.accession1 = ANY(%(accessions)s)
     UNION
     SELECT 2 AS side, d.accession2 AS accession, d.name2 AS name
     FROM dataset d
-    WHERE {VALID} AND d.type = 'hh' AND d.accession2 = ANY(%(accessions)s)
+    WHERE {valid("d")} AND d.type = 'hh' AND d.accession2 = ANY(%(accessions)s)
 )
 SELECT accession, string_agg(DISTINCT name, ', ' ORDER BY name) AS name
 FROM named
@@ -119,7 +111,7 @@ SELECT
     protein2_id, type2, accession2, start2, stop2,
     name2, ncbi_taxon_id2, taxon2, mapping2
 FROM dataset d
-WHERE {VALID}
+WHERE {valid("d")}
   AND (json_array_length(d.mapping1) > 0 OR json_array_length(d.mapping2) > 0)
   AND (
     d.accession1 = ANY(%(targets)s)
@@ -159,30 +151,13 @@ def names(humans: list[str]) -> dict[str, str]:
     return found
 
 
-def _sources(
-    protein: dict[str, str], accession: str, start: int, stop: int
-) -> dict[str, str]:
-    """The sequences a mapping on this protein can have been curated on.
-
-    A protein curated full length -- every human protein, and a viral protein
-    that is not a mature one -- brings its canonical sequence and its
-    isoforms, since a peptide may have been located on an isoform. A mature
-    viral protein is a region of a polyprotein and has no isoforms of its
-    own, so its mature region is the only sequence to match against.
-    """
-    canonical = protein[accession]
-    if start == 1 and stop == len(canonical):
-        return protein
-    return {accession: canonical[start - 1 : stop]}
-
-
 def peptides(targets: dict[str, str]) -> pl.DataFrame:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(MAPPINGS_QUERY.encode(), {"targets": list(targets)})
         rows = cur.fetchall()
-        ids = sorted({row[0] for row in rows} | {row[9] for row in rows})
-        cur.execute("SELECT id, sequences FROM proteins WHERE id = ANY(%s)", (ids,))
-        sequences = dict(cur.fetchall())
+        sequences = load_sequences(
+            cur, {row[0] for row in rows} | {row[9] for row in rows}
+        )
 
     # A human source carries its UniProt gene name rather than the name the
     # curators gave it as side 2, so its name is resolved like a target's.
@@ -200,11 +175,11 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
             protein_id, type_, accession, start, stop = source[:5]
             name, ncbi_taxon_id, taxon, mapping = source[5:]
             protein = sequences[protein_id]
-            sources = _sources(protein, accession, start, stop)
-            for occurrence in occurrences(mapping, sources, PEPTIDE_MIN, PEPTIDE_MAX):
+            on = sources(protein, accession, start, stop)
+            for occurrence in peptide_occurrences(mapping, on):
                 # An isoform source is full length: its triple is
                 # (isoform, 1, length).
-                source_sequence = sources[occurrence.accession]
+                source_sequence = on[occurrence.accession]
                 on_isoform = occurrence.accession != accession
                 records.append(
                     {
@@ -246,7 +221,7 @@ def peptides(targets: dict[str, str]) -> pl.DataFrame:
     )
 
 
-def main(output: Path) -> None:
+def main(filename: Path) -> None:
     targets, dropped = accessions(sys.stdin)
     if dropped:
         print(f"{dropped} input line(s) carried no accession", file=sys.stderr)
@@ -255,13 +230,10 @@ def main(output: Path) -> None:
 
     found = names(targets)
     peps = peptides(found)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    peps.write_csv(output, separator="\t")
+    peps.write_csv(dataset_path(filename), separator="\t")
 
     source_types = peps["source_type"]
-    log_run(
-        "scripts/human_target_peptides.py",
-        str(output),
+    show(
         {
             "accessions read": len(targets),
             "targets in the database": len(found),
@@ -279,7 +251,10 @@ if __name__ == "__main__":
         description="Export the peptides binding the human proteins read on stdin."
     )
     parser.add_argument(
-        "--output", type=Path, required=True, help="TSV file the peptides go to"
+        "--output",
+        type=Path,
+        required=True,
+        help="TSV file name the peptides go to, in data/<database>/",
     )
     args = parser.parse_args()
     main(args.output)

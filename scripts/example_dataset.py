@@ -1,21 +1,15 @@
 """Template for a dataset script. Run: uv run python scripts/<name>.py"""
 
-from drakkar.db import export
-
-VALID = """
-    state = 'curated'
-    AND is_obsolete1 IS FALSE
-    AND is_obsolete2 IS FALSE
-    AND deleted_at IS NULL
-"""
+from drakkar.db import dataset_path, export
+from drakkar.descriptions import valid
 
 df = export(
     f"""
     SELECT accession1, name1, accession2, name2, start2, stop2, taxon2, pmid, method
     FROM dataset
-    WHERE {VALID} AND type = 'vh'
+    WHERE {valid()} AND type = 'vh'
     """,
-    "data/example_vh.tsv",
+    dataset_path("example_vh.tsv"),
 )
 
 print(df.shape)
