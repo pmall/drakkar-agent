@@ -39,9 +39,8 @@ One script per dataset, **all exports to `data/`**; `scripts/example_dataset.py`
 working template.
 
 `data/` is gitignored, so the script is the only record of how its dataset was built.
-Treat `scripts/` as an append-only provenance log: commit every dataset script, one
-commit per dataset. Nothing imports them, so they are never edited to keep them
-running — a new dataset is a new script.
+Treat `scripts/` as an append-only provenance log. Nothing imports them, so they are
+never edited to keep them running — a new dataset is a new script.
 
 Docstrings describe the dataset, never a specific run: run dates, database name and
 counts go to the committed `RUNS.md` via `drakkar.runs.log_run`.
@@ -87,6 +86,10 @@ Defaults for every dataset script; follow them without asking.
 - Before calling an output row odd, read how `drakkar.mappings` documents the case —
   most are handled by design.
 - Never edit `drakkar/` modules without the user's consent.
+- **Never run `git commit`, and never amend one.** Finished work is left as changes in
+  the working tree; the user commits, and writes the message. Nothing in this file is
+  permission to commit.
+- Commit messages carry no co-authorship or attribution line.
 
 ## Writing code
 
